@@ -13,5 +13,7 @@
         require("awards53").setup()
     end
 }
+```
 
-![Скриншот](awards53nvim.png)
+![Awards53.nvim](awards53.nvim.png)
+
