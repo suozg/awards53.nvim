@@ -15,5 +15,5 @@
 }
 ```
 
-![Awards53.nvim](awards53.nvim.png)
+![Awards53.nvim](awards53nvim.png)
 
