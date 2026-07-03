@@ -14,4 +14,4 @@
     end
 }
 
-![Скриншот](Screenshot.png)
+![Скриншот](awards53nvim.png)
