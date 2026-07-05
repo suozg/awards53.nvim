@@ -11,9 +11,6 @@ function M.render()
     local record = state.current_record()
     local lines = {}
     
-    -- table.insert(lines, "№")
-    -- table.insert(lines, hr(60))
-    -- table.insert(lines, tostring(record.N or ""))
     table.insert(lines, "")
 
     for i, field in ipairs(state.headers_list()) do

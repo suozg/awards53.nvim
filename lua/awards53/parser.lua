@@ -6,8 +6,9 @@ local function is_key(line, separator)
 end
 
 function M.parse(lines, separator)
-    separator = separator or "::"
-
+    local cfg = require("awards53")
+    local cfg = require("awards53")
+    separator = separator or cfg.config.separator
     local headers = {}
     local records = {}
 
@@ -25,9 +26,8 @@ function M.parse(lines, separator)
     finish_record()
 
     for _, line in ipairs(lines) do
-
-        if vim.trim(line) == "===" then
-
+            
+        if vim.trim(line) == cfg.config.record_separator then
             finish_record()
 
         else

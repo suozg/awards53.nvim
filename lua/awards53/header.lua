@@ -6,7 +6,7 @@ function M.render()
 
     return {
         string.format(
-            " НАГОРОДНИЙ ЛИСТ %d із %d",
+            " ЗАПИС %d із %d",
             state.index(),
             state.count()
         )

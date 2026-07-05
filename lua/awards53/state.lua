@@ -1,5 +1,8 @@
 local M = {}
 
+local cfg = require("awards53")
+local utils = require("awards53.utils")
+M.is_changed = false
 M.records = {}
 M.headers = {}
 M.current = 1
@@ -9,6 +12,9 @@ M.clipboard = nil
 M.undo = nil
 M.source_buffer = nil
 M.source_win = nil
+M.last_search = nil
+M.last_search_field = nil
+
 
 function M.set_source_win(win)
     M.source_win = win
@@ -28,33 +34,60 @@ end
 
 
 function M.data()
-
     return {
         headers = M.headers,
         records = M.records,
     }
-
 end
 
 
-function M.find(text)
+function M.find(text, step, field)
 
-    text = text:lower()
+    field = field or M.last_search_field or cfg.config.default_sort
+    text = utils.normalize(text)
+    step = step or 1
 
-    for i, rec in ipairs(M.records) do
+    M.last_search = text
+    M.last_search_field = field
 
-        local pib = table.concat(rec["ПІБ"] or {}, " ")
+    local n = #M.records
+    local start = M.current
 
-        if pib:lower():find(text, 1, true) then
-            M.current = i
-            return true
+    for _ = 1, n do
+        start = start + step
+
+        if start > n then
+            start = 1
+        elseif start < 1 then
+            start = n
         end
 
+        local rec = M.records[start]
+
+        local value = utils.normalize(
+            table.concat(rec[field] or {}, " ")
+        )
+
+        if value:find(text, 1, true) then
+            M.current = start
+            return true
+        end
     end
 
     return false
 end
 
+function M.find_next(step)
+    if not M.last_search then
+        return false
+    end
+
+    return M.find(
+        M.last_search,
+        step or 1,
+        M.last_search_field
+    )
+end
 
 function M.snapshot()
 
@@ -108,7 +141,7 @@ function M.paste_after()
     )
 
     M.current = M.current + 1
-
+    M.is_changed = true -- Зміна!
     M.renumber()
 
     return true
@@ -125,6 +158,7 @@ function M.set(data)
     M.current = 1
     M.field = 1
     M.current_mode = "NORMAL"
+    M.is_changed = false -- Картки щойно відкриті, змін немає
     M.renumber()
 end
 
@@ -292,6 +326,8 @@ function M.sort_by(field)
     end)
 
     M.renumber()
+    M.is_changed = true
+
 end
 
 
@@ -311,6 +347,7 @@ function M.new_record()
     M.current = #M.records
     M.field = 1
 
+    M.is_changed = true
 end
 
 
@@ -329,6 +366,7 @@ function M.delete_current()
 
     M.field = 1
 
+    M.is_changed = true
     M.renumber()
 
     return true
