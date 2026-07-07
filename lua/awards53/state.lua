@@ -2,6 +2,9 @@ local M = {}
 
 local cfg = require("awards53")
 local utils = require("awards53.utils")
+local serializer = require("awards53.serializer")
+local parser = require("awards53.parser")
+
 M.is_changed = false
 M.records = {}
 M.headers = {}
@@ -117,35 +120,100 @@ function M.undo_last()
 end
 
 
+-- Копіювання поточної картки у системний буфер обміну ОС (регістр +)
 function M.copy_current()
+    local current_rec = M.current_record()
+    if not current_rec then return false end
 
-    M.clipboard = vim.deepcopy(M.current_record())
+    -- Пакуємо одну картку для серіалізатора
+    local dummy_data = {
+        headers = M.headers,
+        records = { vim.deepcopy(current_rec) }
+    }
+    
+    -- Генеруємо текст
+    local lines = serializer.build(dummy_data)
+    
+    -- Очищаємо початкові порожні рядки, які серіалізатор додає "для краси"
+    while #lines > 0 and vim.trim(lines[1]) == "" do
+        table.remove(lines, 1)
+    end
+    
+    local text = table.concat(lines, "\n")
 
+    -- Записуємо чистий текст полів у системний кліпборд
+    vim.fn.setreg("+", text)
     return true
-
 end
 
 
+-- Вставка картки із системного буфера обміну ОС
 function M.paste_after()
-    
+    -- 1. Якщо у файлі взагалі немає карток, ініціалізуємо records як порожній масив
+    if not M.records then M.records = {} end
+
+    -- 2. Захист індексу: якщо поточний індекс виходить за межі існуючих карток,
+    -- скидаємо його на кінець масиву (або на 1, якщо файл порожній)
+    if #M.records == 0 then
+        M.current = 0
+    elseif M.current > #M.records then
+        M.current = #M.records
+    elseif M.current < 1 then
+        M.current = 1
+    end
+
+    -- Робимо знімок для скасування (undo) вже після валідації індексів
     M.snapshot()
 
-    if not M.clipboard then
+    -- 3. Читаємо текст із кліпборда ОС
+    local text = vim.fn.getreg("+")
+    if not text or vim.trim(text) == "" then
         return false
     end
 
+    -- Розбиваємо на рядки
+    local lines = vim.split(text, "\n", { trimempty = false })
+    
+    -- Парсимо картку з урахуванням сепаратора
+    local parsed = parser.parse(lines, cfg.config.separator)
+
+    if not parsed.records or #parsed.records == 0 then
+        return false
+    end
+
+    -- Беремо повністю відновлену картку
+    local new_rec = parsed.records[1]
+
+    -- 4. Динамічно розширюємо заголовки, якщо вставлена картка має більше полів
+    for _, parsed_header in ipairs(parsed.headers) do
+        local exists = false
+        for _, current_header in ipairs(M.headers) do
+            if current_header == parsed_header then
+                exists = true
+                break
+            end
+        end
+        if not exists then
+            table.insert(M.headers, parsed_header)
+        end
+    end
+
+    -- 5. Визначаємо точне і безпечне місце для вставки
+    -- Якщо файл був порожній (M.current = 0), вставиться на позицію 1
+    local insert_pos = M.current + 1
+
     table.insert(
         M.records,
-        M.current + 1,
-        vim.deepcopy(M.clipboard)
+        insert_pos,
+        vim.deepcopy(new_rec)
     )
 
-    M.current = M.current + 1
-    M.is_changed = true -- Зміна!
+    -- Переводимо фокус на щойно вставлену картку
+    M.current = insert_pos
+    M.is_changed = true
     M.renumber()
 
     return true
-
 end
 
 
@@ -373,5 +441,28 @@ function M.delete_current()
 
 end
 
+function M.new_field()
+    M.snapshot()
 
+    -- Визначаємо номер нового поля (наприклад, якщо було 3, стане "4")
+    local new_idx = #M.headers + 1
+    local new_field_name = tostring(new_idx)
+
+    -- Додаємо новий заголовок у список полів файлу
+    table.insert(M.headers, new_field_name)
+
+    -- Для кожної існуючої картки ініціалізуємо це нове поле порожнім рядком,
+    -- щоб уникнути помилок nil під час рендеру чи редагування
+    for _, rec in ipairs(M.records) do
+        if not rec[new_field_name] then
+            rec[new_field_name] = { "" }
+        end
+    end
+
+    -- Переміщуємо фокус вибору поля на щойно створене
+    M.field = new_idx
+    M.is_changed = true
+
+    return true
+end
 return M

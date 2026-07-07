@@ -4,6 +4,7 @@ local header = require("awards53.header")
 local body = require("awards53.body")
 local state = require("awards53.state")
 local editor = require("awards53.editor")
+local utils = require("awards53.utils")
 
 M.body_buf = nil
 M.body_win = nil
@@ -22,7 +23,6 @@ local function render_body()
 end
 
 ---------------------------------------------------------
-
 function M.redraw()
 
     if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then
@@ -41,22 +41,66 @@ function M.redraw()
 
     vim.bo[M.body_buf].modifiable = false
   
+    utils.highlight_rnokpp_in_buf(M.body_buf)
+end
+---------------------------------------------------------
+-- local function map(lhs, rhs)
+--     print("Creating mapping:", lhs)
+--     vim.keymap.set(
+--         "n",
+--         lhs,
+--         rhs,
+--         {   
+--             buffer = M.body_buf,
+--             silent = true }
+--     )
+-- end
+-- Ваша таблиця ua залишається без змін
+local ua = {
+    h = "р", j = "о", k = "л", l = "д", i = "ш", a = "ф", s = "і", d = "в", f = "а", g = "п", y = "н", u = "г", n = "т", p = "з",
+    H = "Р", J = "О", K = "Л", L = "Д", I = "Ш", A = "Ф", S = "І", D = "В", F = "А", G = "П", Y = "Н", U = "Г", N = "Т", P = "З",
+    -- Додамо спецсимволи, якщо вони використовуються в маппінгах
+    ["["] = "х", ["]"] = "ї",
+    ["/"] = ".", ["?"] = ",",
+}
+
+-- Допоміжна функція для посимвольного перекладу комбінацій (наприклад, "dd" -> "вв")
+local function translate_to_uk(str)
+    -- Якщо це керуюча клавіша типу <C-f> або :w<CR>, повертаємо її як є
+    if str:match("<.*>") or str:match("^:") then
+        return str
+    end
+
+    local result = ""
+    -- Розбиваємо рядок на окремі символи
+    for i = 1, #str do
+        local char = str:sub(i, i)
+        result = result .. (ua[char] or char)
+    end
+    return result
 end
 
----------------------------------------------------------
 local function map(lhs, rhs)
-    vim.keymap.set(
-        "n",
-        lhs,
-        rhs,
-        { buffer = M.body_buf, silent = true }
-    )
+    local opts = {
+        buffer = M.body_buf,
+        silent = true,
+    }
+
+    -- 1. Реєструємо оригінальний англійський маппінг
+    vim.keymap.set("n", lhs, rhs, opts)
+
+    -- 2. Перекладаємо та реєструємо український відповідник
+    local uk = translate_to_uk(lhs)
+    if uk ~= lhs then
+        vim.keymap.set("n", uk, rhs, opts)
+    end
 end
 
 ---------------------------------------------------------
 local function bind_keys()
 
     local cfg = require("awards53")
+
     map("h", function()
 
         if state.prev() then
@@ -146,10 +190,19 @@ local function bind_keys()
         M.redraw()
         editor.open()
     end)
-
+    
+    map("F", function()
+        if state.new_field() then
+            M.redraw()
+            utils.info("Додано нове поле №" .. state.field_name())
+        end
+    end)
+    
     map("dd", function()
+        state.copy_current()
         if state.delete_current() then
             M.redraw()
+            utils.info("Картку вирізано")
         else
             utils.error("Не можна видалити останню картку")
         end
@@ -221,6 +274,28 @@ local function bind_keys()
         end
     end)
 
+    local actions = require("awards53.actions")
+
+    -- Натискання великої 'O' — сортує весь список (офіцери на початок)
+    map("O", function()
+        actions.sort_officers_first()
+        state.first()
+        M.redraw()
+    end)
+
+    -- Натискання 'R' (РНОКПП) — виправляє форматування коду в Полі 2 поточної картки
+    map("R", function()
+        actions.format_rnokpp_in_current_card()
+        M.redraw()
+    end)
+
+    -- Натискання 'X' (eXpand) — примусово розгортає всі абревіатури у поточній картці
+    map("X", function()
+        actions.expand_abbr_in_current_card()
+        M.redraw()
+    end)
+
+
 end
 
 ---------------------------------------------------------
@@ -243,15 +318,21 @@ function M.open()
             if state.is_changed then
                 local org_buf = state.get_source_buffer()
                 if org_buf and vim.api.nvim_buf_is_valid(org_buf) then
-                    vim.cmd("silent Awards53Sync")
-                    vim.bo[org_buf].modified = true
+                    local success, err = pcall(function()
+                        vim.cmd("silent Awards53Sync")
+                    end)
+                    
+                    if success then
+                        vim.bo[org_buf].modified = true
+                    else
+                        utils.warn("Не вдалося синхронізувати зміни: розділ секції було пошкоджено або видалено.")
+                    end
                 end
             end
             M.body_buf = nil
             M.body_win = nil
         end,
     })
-
 
     vim.api.nvim_buf_set_name(M.body_buf, "Awards53")
     vim.wo[M.body_win].statusline =
@@ -283,6 +364,8 @@ function M.close_editor()
     M.redraw()
     M.focus()
 end
+
+---------------------------------------------------------
 
 ---------------------------------------------------------
 

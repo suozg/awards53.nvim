@@ -5,6 +5,9 @@ local state = require("awards53.state")
 M.buf = nil
 M.win = nil
 
+local utils = require("awards53.utils")
+
+
 function M.open()
     local record = state.current_record()
     local field = state.field_name()
@@ -37,8 +40,20 @@ function M.open()
     vim.opt_local.spell = true
     vim.opt_local.spelllang = "uk,en_us"
 
-    -- Автокоманди
+    -- Запускаємо первинну перевірку рнокпп при відкритті картки
+    utils.highlight_rnokpp_in_buf(M.buf)
+    
     local group = vim.api.nvim_create_augroup("Awards53Editor" .. M.win, { clear = true })
+
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+        group = group,
+        buffer = M.buf,
+        callback = function()
+            vim.schedule(function()
+                utils.highlight_rnokpp_in_buf(M.buf)
+            end)
+        end,
+    })
 
     vim.api.nvim_create_autocmd("WinClosed", {
         group = group,
@@ -62,7 +77,11 @@ function M.open()
     vim.api.nvim_buf_create_user_command(M.buf, "W", function()
         M.save()
     end, {})
+
+    vim.cmd("startinsert")   -- Переходить в режим вставки перед першим символом
+
 end
+
 
 function M.save()
     local record = state.current_record()
@@ -87,9 +106,6 @@ function M.save()
     -- явно оновлюємо інтерфейс картки перед закриттям
     state.set_mode("NORMAL")
     require("awards53.ui").redraw()
-    -- Закриваємо вкладку.
-    -- Це автоматично тригерне автокоманду WinClosed, яка змінить режим на NORMAL
-    -- та викличе redraw для UI, уникаючи подвійного виклику та помилок фокусу буфера.
     vim.cmd("tabclose!")
 end
 

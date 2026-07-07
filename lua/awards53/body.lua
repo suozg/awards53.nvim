@@ -14,11 +14,10 @@ function M.render()
     table.insert(lines, "")
 
     for i, field in ipairs(state.headers_list()) do
-
         if i == state.field_index() then
-            table.insert(lines, "► " .. field)
+            table.insert(lines, "► Поле " .. field)
         else
-            table.insert(lines, "  " .. field)
+            table.insert(lines, "  Поле " .. field)
         end
 
         table.insert(lines, hr(60))

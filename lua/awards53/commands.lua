@@ -44,43 +44,68 @@ end
 
 
 local function open_cards()
-
     local buf = vim.api.nvim_get_current_buf()
     
     state.set_source_buffer(buf)
-    state.set_source_win(vim.api.nvim_get_current_win())
-    
+    state.set_source_win(vim.api.nvim_get_current_win())    
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+    -- === ПРОВЕРКА НА ПУСТОЙ ФАЙЛ / ОТСУТСТВИЕ СЕКЦИИ ===
+    local first, last = find_awards_block(lines)
+    
+    -- Если секция не найдена ИЛИ файл абсолютно пустой
+    if not first or (#lines == 1 and vim.trim(lines[1]) == "") then
+        -- Создаем базовую разметку для инициализации.
+        -- Нам нужна сама секция и хотя бы один разделитель или пустое поле,
+        -- чтобы parser.lua определил наличие хотя бы одного поля (headers).
+        local default_lines = {
+            "*" .. " " .. cfg.config.section, -- Например: * AWARDS53
+            "",                               -- Пустая строка для красоты
+            "",                               -- Будущее Поле 1 первой карточки
+        }
+        
+        -- Записываем дефолтную структуру прямо в текущий буфер `.org` файла
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, default_lines)
+        
+        -- Перечитываем строки буфера для последующего парсинга
+        lines = default_lines
+    end
+    -- ===================================================
+
     local inside = false
     local block = {}
 
     for _, line in ipairs(lines) do
-
         if utils.is_section(line) then
-
             inside = true
-
         elseif inside and utils.is_heading(line) then
-
             break
-
         elseif inside then
-
             table.insert(block, line)
-
         end
     end
 
+    -- Передаем вырезанный блок строк в парсер
     local data = parser.parse(block)
 
+    -- Если парсер вернул пустые записи (такое может быть при первичной инициализации),
+    -- принудительно гарантируем структуру, чтобы UI не падал
     if #data.records == 0 then
-        utils.warn("У розділі " .. cfg.config.section .. " немає записів")
-        return
+        table.insert(data.records, { ["1"] = { "" } })
+    end
+    if #data.headers == 0 then
+        table.insert(data.headers, "1")
     end
 
-    state.set(data)
-    ui.open()
+    -- Записываем структуру в state
+    state.headers = data.headers
+    state.records = data.records
+    state.current = 1
+    state.field = 1
+    state.is_changed = false -- пока еще ничего не меняли на диске
 
+    -- Открываем интерфейс карточек
+    ui.open()
 end
 
 
