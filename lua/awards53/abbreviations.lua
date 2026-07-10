@@ -1,46 +1,42 @@
+
 local M = {}
 
--- Словник точних відповідностей скорочень
 local dictionary = {
-    -- 3 Армійський Корпус
-    ["3АКого"]   = "3 армійського корпусу",
-    ["3АКу"]     = "3 армійському корпусу",
-    ["3АК"]      = "3 армійський корпус",
-    
-    -- 53 ОМБр
-    ["53ОМБРої"] = "53 окремої механізованої бригади",
-    ["53ОМБРі"]  = "53 окремій механізованій бригаді",
-    ["53ОМБР"]   = "53 окрема механізована бригада",
+  ["3АКого"]   = "3 армійського корпусу",
+  ["іменіВМ"]  = "імені князя Володимира Мономаха",
+  ["53ди"]     = "53 окремої механізованої бригади",
+  ["53да"]     = "53 окрема механізована бригада",
+  ["53ді"]     = "53 окремій механізованій бригаді",
 }
 
--- Функція для розгортання скорочень в одному рядку
-function M.expand_text(text)
-    if not text or text == "" then return text end
+local keys = {}
+for k in pairs(dictionary) do table.insert(keys, k) end
+table.sort(keys, function(a,b) return #a > #b end)
 
-    -- Сортуємо ключі за довжиною (від довших до коротших),
-    -- щоб "3АКого" не перетворилося на "3 армійський корпусого"
-    local keys = {}
-    for k in pairs(dictionary) do table.insert(keys, k) end
-    table.sort(keys, function(a, b) return #a > #b end)
-    
-    for _, key in ipairs(keys) do
-        -- %f[%w_] та %f[%W_] гарантують заміну цілого слова, а не частини іншого тексту
-        local pattern = "%f[%w_]" .. vim.pesc(key) .. "%f[%W_]"
-        text = text:gsub(pattern, dictionary[key])
-    end
-    
-    return text
+function M.register_buffer_abbreviations(bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-end
+  vim.api.nvim_create_autocmd("TextChangedI", {
+    buffer = bufnr,
+    callback = function()
+      local row, col0 = unpack(vim.api.nvim_win_get_cursor(0))
+      local line = vim.api.nvim_get_current_line()
+      local before = line:sub(1, col0)
 
--- Функція для обробки масиву рядків поля
-function M.expand_lines(lines)
-    if type(lines) ~= "table" then return lines end
-    local out = {}
-    for _, line in ipairs(lines) do
-        table.insert(out, M.expand_text(line))
-    end
-    return out
+      for _, key in ipairs(keys) do
+        if before:sub(-#key) == key then
+          local value = dictionary[key]
+          local start_col = col0 - #key
+          local end_col = col0
+
+          vim.api.nvim_buf_set_text(bufnr, row-1, start_col, row-1, end_col, { value })
+          vim.api.nvim_win_set_cursor(0, { row, start_col + #value })
+
+          return
+        end
+      end
+    end,
+  })
 end
 
 return M

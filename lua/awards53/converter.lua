@@ -59,10 +59,8 @@ function M.html(data)
             if first_non_empty > 0 and last_non_empty >= first_non_empty then
                 for i = first_non_empty, last_non_empty do
                     local line = value[i]
-                    if vim.trim(line) == "" then
-                        table.insert(out, "<br>")
-                    else
-                        table.insert(out, esc(line) .. "<br>")
+                    if vim.trim(line) ~= "" then
+                        table.insert(out, "<p style='margin: 0 0 4px 0;'>" .. esc(line) .. "</p>")
                     end
                 end
             end

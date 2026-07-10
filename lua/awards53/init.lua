@@ -47,14 +47,6 @@ function M.setup(opts)
         end,
     })
 
-    vim.api.nvim_create_autocmd("InsertLeave", {
-        pattern = "*.org", 
-        callback = function()
-            local actions = require("awards53.actions")
-            actions.expand_abbr_in_current_card()
-        end,
-    })
-    
 end
 
 return M
