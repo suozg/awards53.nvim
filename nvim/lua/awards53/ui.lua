@@ -80,7 +80,10 @@ local function bind_keys()
             state.field = state.field_index() > 1 and state.field_index() - 1 or #state.headers_list()
             state.last_field = state.field
         end, true },
-
+        -- Зсув тексту полів у поточній картці (Ctrl+j / Ctrl+k)
+        ["<C-j>"] = { function() return state.move_field_content_down() end, true },
+        ["<C-k>"] = { function() return state.move_field_content_up() end, true },
+        
         ["i"]   = { function() state.set_mode("INSERT") M.redraw() editor.open() end, false },
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false },
         
@@ -105,7 +108,7 @@ local function bind_keys()
             vim.ui.input({ prompt = "Пошук " .. cfg.config.default_sort .. ": " }, function(t) if t and t ~= "" then state.find(t, 1) M.redraw() end end)
         end, false },
         
-        ["?"]   = { function() 
+        ["g/"]   = { function() 
             vim.ui.select(state.headers_list(), { prompt = "🔍 Шукати в полі:" }, function(f)
                 if f then vim.ui.input({ prompt = "Пошук (" .. f .. "): " }, function(t) if t and t ~= "" then state.find(t, 1, f) M.redraw() end end) end
             end)
@@ -113,11 +116,17 @@ local function bind_keys()
 
         ["n"]   = { function() return state.find_next() end, true },
         ["N"]   = { function() return state.find_next(-1) end, true },
-
+        -- схлопування пустих полів по всьому файлу
+        ["0"] = { function() return state.collapse_empty_fields_globally() end, true },
         -- Екшени з actions.lua
         ["O"]   = { function() actions.sort_officers_first() state.first() end, true },
         ["R"]   = { function() actions.format_rnokpp_in_current_card() end, true },
         ["X"]   = { function() actions.format_rnokpp_in_all_cards() end, true },
+        -- Заміна переносів рядків на пробіли
+        ["e"] = { function() return state.flatten_current_field() end, true },
+        ["E"] = { function() return state.flatten_field_globally() end, true },
+
+        ["?"] = { function() require("awards53.help").open() end, false  },
     }
 
     -- Один універсальний цикл замість десятків викликів map()

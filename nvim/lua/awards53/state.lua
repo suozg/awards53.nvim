@@ -63,6 +63,106 @@ function M.undo_last()
     return true
 end
 
+-- зсув усіх заповнених полів на початок, а пустих — у кінець (для кожної картки окремо)
+function M.collapse_empty_fields_globally()
+    M.snapshot() -- Зберігаємо стан для скасування (Undo)
+
+    local total_headers = #M.headers
+
+    -- Проходимо по кожній картці в базі даних
+    for _, record in ipairs(M.records) do
+        -- Збираємо лише ті значення, які не є пустими
+        local non_empty_values = {}
+        
+        for idx = 1, total_headers do
+            local key = tostring(idx)
+            local val = record[key]
+            
+            -- Перевіряємо, чи є в полі реальний текст
+            local has_text = false
+            if type(val) == "table" then
+                for _, line in ipairs(val) do
+                    if vim.trim(line) ~= "" then
+                        has_text = true
+                        break
+                    end
+                end
+            elseif type(val) == "string" and vim.trim(val) ~= "" then
+                has_text = true
+            end
+
+            -- Якщо поле не пусте, запам'ятовуємо його вміст
+            if has_text then
+                table.insert(non_empty_values, val)
+            end
+        end
+
+        -- Перезаписуємо поля картки: спочатку заповнені, потім пусті
+        for idx = 1, total_headers do
+            local key = tostring(idx)
+            if idx <= #non_empty_values then
+                record[key] = non_empty_values[idx]
+            else
+                record[key] = { "" } -- Очищаємо хвіст
+            end
+        end
+    end
+
+    -- Скидаємо курсор на перше поле, щоб уникнути виходу за межі
+    M.field = 1
+    M.last_field = 1
+    M.is_changed = true
+    
+    utils.info("Ядерне очищення завершено: пусті поля схлопнуто в усіх картках!")
+    return true
+end
+
+-- Замінити переноси рядків на пробіли ТІЛЬКИ в поточному полі поточної картки
+function M.flatten_current_field()
+    local record = M.current_record()
+    local key = tostring(M.field)
+    local val = record[key]
+
+    if type(val) == "table" and #val > 1 then
+        M.snapshot()
+        -- Склеюємо рядки через пробіл
+        local combined = table.concat(val, " ")
+        -- Прибираємо подвійні пробіли, якщо вони утворилися
+        combined = combined:gsub("%s+", " ")
+        record[key] = { combined }
+        M.is_changed = true
+        utils.info("Переноси рядків у поточному полі замінено на пробіли")
+        return true
+    end
+    return false
+end
+
+-- Замінити переноси рядків на пробіли в поточному полі ДЛЯ ВСІХ КАРТОК
+function M.flatten_field_globally()
+    M.snapshot()
+    local key = tostring(M.field)
+    local count = 0
+
+    for _, record in ipairs(M.records) do
+        local val = record[key]
+        if type(val) == "table" and #val > 1 then
+            local combined = table.concat(val, " ")
+            combined = combined:gsub("%s+", " ")
+            record[key] = { combined }
+            count = count + 1
+        end
+    end
+
+    if count > 0 then
+        M.is_changed = true
+        utils.info("Глобально очищено карток від переносів рядків: " .. count)
+        return true
+    else
+        utils.info("Нічого міняти, в цьому полі немає багаторядкових текстів")
+        return false
+    end
+end
+
 -- Навігація по картках 
 local function adjust_navigation(new_pos)
     if new_pos >= 1 and new_pos <= #M.records then
@@ -160,6 +260,46 @@ function M.paste_after()
     return true
 end
 
+-- Зсунути вміст поточного поля НАЗАД (вгору / Ctrl+k)
+function M.move_field_content_up()
+    local idx = M.field
+    if idx <= 1 then return false end -- Ми вже на першому полі
+
+    M.snapshot()
+    local record = M.current_record()
+    local current_key = tostring(idx)
+    local prev_key = tostring(idx - 1)
+
+    -- Міняємо значення місцями
+    record[current_key], record[prev_key] = record[prev_key], record[current_key]
+    
+    -- Змінюємо активне поле, щоб курсор «йшов» за текстом
+    M.field = idx - 1
+    M.last_field = M.field
+    M.is_changed = true
+    return true
+end
+
+-- Зсунути вміст поточного поля ВПЕРЕД (вниз / Ctrl+j)
+function M.move_field_content_down()
+    local idx = M.field
+    if idx >= #M.headers then return false end -- Ми на останньому полі
+
+    M.snapshot()
+    local record = M.current_record()
+    local current_key = tostring(idx)
+    local next_key = tostring(idx + 1)
+
+    -- Міняємо значення місцями
+    record[current_key], record[next_key] = record[next_key], record[current_key]
+    
+    -- Курсор іде за текстом
+    M.field = idx + 1
+    M.last_field = M.field
+    M.is_changed = true
+    return true
+end
+
 -- Ініціалізація та модифікація даних реєстру
 function M.set(data)
     data = data or {} 
@@ -168,15 +308,58 @@ function M.set(data)
     M.renumber() 
 end
 
+-- ФУНКЦІЯ СОРТУВАННЯ
 function M.sort_by(field)
-    M.snapshot() 
+    M.snapshot()
+
+    local char2nr = vim.fn.char2nr
+    
     local function norm(v)
-        return table.concat(type(v) == "table" and v or {v or ""}, " "):gsub("%s+", " "):lower() 
+        return table.concat(type(v) == "table" and v or {v or ""}, " ")
+            :gsub("%s+", " ")
     end
-    table.sort(M.records, function(a, b) return norm(a[field]) < norm(b[field]) end) 
-    M.renumber() 
-    M.is_changed = true 
+
+    local alphabet = {}
+
+    for i, c in ipairs(vim.fn.split(
+        "АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ", "\\zs")) do
+        alphabet[c] = i
+    end
+
+    local function uk_cmp(a, b)
+        a = vim.fn.toupper(a)
+        b = vim.fn.toupper(b)
+
+        local aa = vim.fn.split(a, "\\zs")
+        local bb = vim.fn.split(b, "\\zs")
+
+        local n = math.max(#aa, #bb)
+
+        for i = 1, n do
+            local ca = aa[i]
+            local cb = bb[i]
+
+            if ca == nil then return true end
+            if cb == nil then return false end
+
+            local va = alphabet[ca] or (1000 + char2nr(ca))
+            local vb = alphabet[cb] or (1000 + char2nr(cb))
+            if va ~= vb then
+                return va < vb
+            end
+        end
+
+        return false
+    end
+
+    table.sort(M.records, function(a, b)
+        return uk_cmp(norm(a[field]), norm(b[field]))
+    end)
+
+    M.renumber()
+    M.is_changed = true
 end
+
 
 function M.new_record()
     M.snapshot() 
