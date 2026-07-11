@@ -1,6 +1,6 @@
 local M = {}
 
-local config = require("documents53.config")
+local config = require("awards53.documents.config")
 
 function M.list()
     local result = {}

@@ -74,6 +74,7 @@ function M.open()
     vim.cmd("startinsert")
 end
 
+-- 
 -- ЯДРО ЗБЕРЕЖЕННЯ ДЛЯ ПОЛЯ
 function M.save_core()
     if not M.buf or not vim.api.nvim_buf_is_valid(M.buf) then return end
@@ -92,12 +93,20 @@ function M.save_core()
         state.sync_to_disk()
         
         vim.api.nvim_buf_call(src, function()
-            vim.bo[src].modified = false
-            local cmd = (file_path and file_path ~= "") and ("silent write! " .. vim.fn.fnameescape(file_path)) or "silent write!"
-            vim.cmd(cmd)
+            -- Мітимо оригінальний буфер як модифікований в ОЗУ
+            vim.bo[src].modified = true
+            
+            -- Пишемо на диск тільки якщо файл має назву. 
+            -- Якщо назви немає (холодний старт), просто тримаємо зміни в пам'яті Neovim.
+            if file_path and file_path ~= "" then
+                pcall(vim.cmd, "silent write! " .. vim.fn.fnameescape(file_path))
+                -- Після успішного запису скидаємо прапорець модифікації
+                vim.bo[src].modified = false
+            end
         end)
     end
 end
+
 
 -- Рендеринг статус-рядка
 function M.render_status()

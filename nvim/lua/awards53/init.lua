@@ -20,6 +20,10 @@ function M.setup(opts)
     )
 
     require("awards53.commands").setup()
+    
+    vim.api.nvim_create_user_command("Documents53", function()
+        require("awards53.documents").open() -- шлях до модуля документів
+    end, {})
 
     vim.api.nvim_create_autocmd("BufReadPost", {
         callback = function(args)

@@ -1,9 +1,9 @@
 local M = {}
 
-local config = require("documents53.config")
+local config = require("awards53.documents.config")
 
 function M.pick(callback)
-    -- 1. Розраховуємо розміри для плаваючого вікна (наприклад, 60% від розміру екрана)
+    -- 1. Розраховуємо розміри для плаваючого вікна (60% від розміру екрана)
     local width = math.floor(vim.o.columns * 0.6)
     local height = math.floor(vim.o.lines * 0.6)
     local row = math.floor((vim.o.lines - height) / 2)
@@ -20,7 +20,7 @@ function M.pick(callback)
         width = width,
         height = height,
         style = "minimal",
-        border = "rounded", -- Красива округла рамка
+        border = "rounded", -- округла рамка
     }
 
     -- 4. Відкриваємо плаваюче вікно
