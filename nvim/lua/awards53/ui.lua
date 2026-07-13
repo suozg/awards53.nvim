@@ -54,19 +54,17 @@ local function translate_to_uk(str)
     return result 
 end
 
--- Декларативна реєстрація клавіш
 local function bind_keys()
     local cfg = require("awards53") 
     local actions = require("awards53.actions") 
 
-    -- Словник гарячих клавіш: { [клавіша] = { функція, чи_потрібен_redraw } }
     local keymaps = {
         ["h"]   = { function() return state.prev() end, true },
         ["l"]   = { function() return state.next() end, true },
         ["[["]  = { function() state.first() end, true },
         ["]]"]  = { function() state.last() end, true },
-        ["<M-h>"] = { function() state.jump(5) end, true },
-        ["<M-l>"] = { function() state.jump(-5) end, true },
+        ["<H>"] = { function() state.jump(5) end, true },
+        ["<L>"] = { function() state.jump(-5) end, true },
         
         ["s"]   = { function() if vim.v.count > 0 then return state.goto_record(vim.v.count) end end, true },
         ["S"]   = { function() state.sort_by(cfg.config.default_sort) state.first() end, true },
@@ -80,14 +78,18 @@ local function bind_keys()
             state.field = state.field_index() > 1 and state.field_index() - 1 or #state.headers_list()
             state.last_field = state.field
         end, true },
-        -- Зсув тексту полів у поточній картці (Ctrl+j / Ctrl+k)
-        ["<M-j>"] = { function() return state.move_field_content_down() end, true },
-        ["<M-k>"] = { function() return state.move_field_content_up() end, true },
+        -- Зсув тексту полів у поточній картці (Shift+j / k)
+        ["J"] = { function() return state.move_field_content_down() end, true },
+        ["K"] = { function() return state.move_field_content_up() end, true },
+         -- Зсув тексту полів у поточній картці (Leader+j / k)
+        ["<leader>j"] = { function() return state.move_field_globally_down() end, true },
+        ["<leader>k"] = { function() return state.move_field_globally_up() end, true },
         
         ["i"]   = { function() state.set_mode("INSERT") M.redraw() editor.open() end, false },
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false },
         
         ["F"]   = { function() if state.new_field() then M.redraw() utils.info("Додано нове поле №" .. state.field_name()) end end, false },
+        ["F-"]   = { function() if state.new_field("-") then M.redraw() utils.info("Додано нове поле №" .. state.field_name() .. "із '-'") end end, false },
         ["B"]   = { function() 
             if state.delete_field() then 
                 pcall(state.sync_to_disk)
@@ -129,12 +131,10 @@ local function bind_keys()
         ["?"] = { function() require("awards53.help").open() end, false  },
     }
 
-    -- Один універсальний цикл замість десятків викликів map()
     local opts = { buffer = M.body_buf, silent = true } 
     for lhs, action_data in pairs(keymaps) do
         local func, need_redraw = action_data[1], action_data[2]
         local handler = function()
-            -- Якщо функція повертає boolean (як state.next()), враховуємо його результат перед рендером
             local res = func()
             if need_redraw and res ~= false then
                 M.redraw()

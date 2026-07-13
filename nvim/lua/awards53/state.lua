@@ -117,27 +117,48 @@ function M.collapse_empty_fields_globally()
     return true
 end
 
--- Замінити переноси рядків на пробіли ТІЛЬКИ в поточному полі поточної картки
+-- Очищаємо пробіли та видаляємо цифри на початку до "53 окремої"
+-- Обробка ТІЛЬКИ для поточної картки
 function M.flatten_current_field()
     local record = M.current_record()
     local key = tostring(M.field)
     local val = record[key]
+    if not val then return false end
 
-    if type(val) == "table" and #val > 1 then
-        M.snapshot()
-        -- Склеюємо рядки через пробіл
-        local combined = table.concat(val, " ")
-        -- Прибираємо подвійні пробіли, якщо вони утворилися
-        combined = combined:gsub("%s+", " ")
-        record[key] = { combined }
-        M.is_changed = true
-        utils.info("Переноси рядків у поточному полі замінено на пробіли")
-        return true
+    -- Склеюємо в один рядок для зручності обробки
+    local combined = ""
+    if type(val) == "table" then
+        combined = table.concat(val, " ")
+    else
+        combined = tostring(val)
     end
-    return false
+
+    M.snapshot()
+    combined = combined:gsub("%s+", " ")
+
+    -- 1. Видаляємо ВСІ цифри (і пробіли біля них) від початку рядка ДО фрази "53 окремої"
+    -- Якщо цієї фрази в тексті немає, цей рядок просто нічого не змінить.
+    combined = combined:gsub("^(.-)%d+(.-53%s+окремої)", "%1%2")
+
+    -- 2. Шукаємо кому, пробіли та 10-значний код (РНОКПП) в кінці рядка
+    -- Выділяємо сам текст і окремо код
+    local text_part, rnokpp_part = combined:match("^(.-)%s*,%s*([солдатик%s]*%d%d%d%d%d%d%d%d%d%d)%s*$")
+
+    -- Якщо знайшли такий код в кінці з комою перед ним
+    if text_part and rnokpp_part then
+        -- Зберігаємо як дворядкове поле (текст на першому рядку, код на другому)
+        record[key] = { text_part, rnokpp_part }
+    else
+        -- Якщо раптом коми немає, просто зберігаємо очищений текст
+        record[key] = { combined }
+    end
+
+    M.is_changed = true
+    utils.info("Поточне поле успішно відформатовано")
+    return true
 end
 
--- Замінити переноси рядків на пробіли в поточному полі ДЛЯ ВСІХ КАРТОК
+-- Глобальна обробка ДЛЯ ВСІХ КАРТОК
 function M.flatten_field_globally()
     M.snapshot()
     local key = tostring(M.field)
@@ -145,20 +166,38 @@ function M.flatten_field_globally()
 
     for _, record in ipairs(M.records) do
         local val = record[key]
-        if type(val) == "table" and #val > 1 then
-            local combined = table.concat(val, " ")
+        if val then
+            local combined = ""
+            if type(val) == "table" then
+                combined = table.concat(val, " ")
+            else
+                combined = tostring(val)
+            end
+
             combined = combined:gsub("%s+", " ")
-            record[key] = { combined }
+
+            -- 1. Видаляємо цифри до "53 окремої"
+            combined = combined:gsub("^(.-)%d+(.-53%s+окремої)", "%1%2")
+
+            -- 2. Переносимо РНОКПП на новий рядок (прибираючи кому)
+            local text_part, rnokpp_part = combined:match("^(.-)%s*,%s*([солдатик%s]*%d%d%d%d%d%d%d%d%d%d)%s*$")
+
+            if text_part and rnokpp_part then
+                record[key] = { text_part, rnokpp_part }
+            else
+                record[key] = { combined }
+            end
+
             count = count + 1
         end
     end
 
     if count > 0 then
         M.is_changed = true
-        utils.info("Глобально очищено карток від переносів рядків: " .. count)
+        utils.info("Глобально відформатовано карток: " .. count)
         return true
     else
-        utils.info("Нічого міняти, в цьому полі немає багаторядкових текстів")
+        utils.info("Не знайдено карток для обробки")
         return false
     end
 end
@@ -260,45 +299,139 @@ function M.paste_after()
     return true
 end
 
--- Зсунути вміст поточного поля НАЗАД (вгору / Ctrl+k)
+
+-- =========================================================================
+-- ЛОКАЛЬНЕ ПЕРЕМІЩЕННЯ (Тільки в поточній картці)
+-- =========================================================================
+
+-- Зсунути вміст поточного поля НАЗАД (вгору / Ctrl+k) лише в цій картці
 function M.move_field_content_up()
     local idx = M.field
-    if idx <= 1 then return false end -- Ми вже на першому полі
+    if idx <= 1 then return false end 
 
     M.snapshot()
     local record = M.current_record()
+    if not record then return false end
+
     local current_key = tostring(idx)
     local prev_key = tostring(idx - 1)
 
-    -- Міняємо значення місцями
+    -- Міняємо значення місцями ТІЛЬКИ в поточній картці
     record[current_key], record[prev_key] = record[prev_key], record[current_key]
     
-    -- Змінюємо активне поле, щоб курсор «йшов» за текстом
     M.field = idx - 1
     M.last_field = M.field
     M.is_changed = true
     return true
 end
 
--- Зсунути вміст поточного поля ВПЕРЕД (вниз / Ctrl+j)
+-- Зсунути вміст поточного поля ВПЕРЕД (вниз / Ctrl+j) лише в цій картці
 function M.move_field_content_down()
     local idx = M.field
-    if idx >= #M.headers then return false end -- Ми на останньому полі
+    if idx >= #M.headers then return false end 
 
     M.snapshot()
     local record = M.current_record()
+    if not record then return false end
+
     local current_key = tostring(idx)
     local next_key = tostring(idx + 1)
 
-    -- Міняємо значення місцями
+    -- Міняємо значення місцями ТІЛЬКИ в поточній картці
     record[current_key], record[next_key] = record[next_key], record[current_key]
     
-    -- Курсор іде за текстом
     M.field = idx + 1
     M.last_field = M.field
     M.is_changed = true
     return true
 end
+
+-- =========================================================================
+-- ГЛОБАЛЬНЕ ПЕРЕМІЩЕННЯ (Структурне, для всіх карток разом)
+-- =========================================================================
+
+-- Перемістити поле вгору ГЛОБАЛЬНО (для всіх карток)
+function M.move_field_globally_up()
+    local idx = M.field
+    if idx <= 1 then return false end 
+
+    M.snapshot()
+    local current_key = tostring(idx)
+    local prev_key = tostring(idx - 1)
+
+    -- Міняємо місцями значення цього поля В УСІХ КАРТКАХ одночасно
+    for _, record in ipairs(M.records) do
+        record[current_key], record[prev_key] = record[prev_key], record[current_key]
+    end
+    
+    M.field = idx - 1
+    M.last_field = M.field
+    M.is_changed = true
+    utils.info("Поле переміщено вгору у всіх картках!")
+    return true
+end
+
+-- Перемістити поле вниз ГЛОБАЛЬНО (для всіх карток)
+function M.move_field_globally_down()
+    local idx = M.field
+    if idx >= #M.headers then return false end 
+
+    M.snapshot()
+    local current_key = tostring(idx)
+    local next_key = tostring(idx + 1)
+
+    -- Міняємо місцями значення цього поля В УСІХ КАРТКАХ одночасно
+    for _, record in ipairs(M.records) do
+        record[current_key], record[next_key] = record[next_key], record[current_key]
+    end
+    
+    M.field = idx + 1
+    M.last_field = M.field
+    M.is_changed = true
+    utils.info("Поле переміщено вниз у всіх картках!")
+    return true
+end
+
+
+-- -- Зсунути вміст поточного поля НАЗАД (вгору / Ctrl+k)
+-- function M.move_field_content_up()
+--     local idx = M.field
+--     if idx <= 1 then return false end -- Ми вже на першому полі
+
+--     M.snapshot()
+--     local record = M.current_record()
+--     local current_key = tostring(idx)
+--     local prev_key = tostring(idx - 1)
+
+--     -- Міняємо значення місцями
+--     record[current_key], record[prev_key] = record[prev_key], record[current_key]
+    
+--     -- Змінюємо активне поле, щоб курсор «йшов» за текстом
+--     M.field = idx - 1
+--     M.last_field = M.field
+--     M.is_changed = true
+--     return true
+-- end
+
+-- -- Зсунути вміст поточного поля ВПЕРЕД (вниз / Ctrl+j)
+-- function M.move_field_content_down()
+--     local idx = M.field
+--     if idx >= #M.headers then return false end -- Ми на останньому полі
+
+--     M.snapshot()
+--     local record = M.current_record()
+--     local current_key = tostring(idx)
+--     local next_key = tostring(idx + 1)
+
+--     -- Міняємо значення місцями
+--     record[current_key], record[next_key] = record[next_key], record[current_key]
+    
+--     -- Курсор іде за текстом
+--     M.field = idx + 1
+--     M.last_field = M.field
+--     M.is_changed = true
+--     return true
+-- end
 
 -- Ініціалізація та модифікація даних реєстру
 function M.set(data)
@@ -382,16 +515,32 @@ function M.delete_current()
     return true
 end
 
-function M.new_field()
+function M.new_field(default_value)
     M.snapshot() 
-    local new_field_name = tostring(#M.headers + 1) 
 
-    table.insert(M.headers, new_field_name) 
-    for _, rec in ipairs(M.records) do
-        if not rec[new_field_name] then rec[new_field_name] = { "" } end 
+    -- 1. Визначаємо позицію для вставки (після поточного поля)
+    local current_idx = M.field or #M.headers
+    local insert_idx = current_idx + 1
+    local total_headers = #M.headers
+
+    -- 2. Значення за замовчуванням
+    local val = default_value or ""
+
+    -- 3. Зсуваємо ДАНІ в картках, звільняючи індекс insert_idx
+    for _, record in ipairs(M.records) do
+        -- Рухаємося з кінця до insert_idx
+        for i = total_headers, insert_idx, -1 do
+            record[tostring(i + 1)] = record[tostring(i)]
+        end
+        -- Записуємо нове значення в середину
+        record[tostring(insert_idx)] = { val }
     end
 
-    M.field = #M.headers 
+    -- 4. Оновлюємо M.headers. 
+    table.insert(M.headers, tostring(total_headers + 1)) 
+
+    -- 5. Переносимо курсор на нове поле (воно візуально буде в середині)
+    M.field = insert_idx
     M.last_field, M.is_changed = M.field, true 
     return true
 end

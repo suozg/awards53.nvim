@@ -8,7 +8,7 @@ function M.render()
     local modified = state.is_changed and " [+]" or ""
 
     return string.format(
-        " Картка %d/%d%s   %s    h◄ l► [[◀◀ ]]▶▶ N q⏏     | A dd y p ",
+        " Картка %d/%d%s   %s    h◄ l► [[◀◀ ]]▶▶ N q⏏     A dd y p ",
         state.index(),
         state.count(),
         modified,

@@ -4,7 +4,6 @@ local parser = require("awards53.parser")
 local state = require("awards53.state")
 local ui = require("awards53.ui")
 local serializer = require("awards53.serializer")
-local converter = require('awards53.converter')
 local utils = require("awards53.utils")
 local cfg = require("awards53")
 
@@ -99,43 +98,6 @@ local function open_cards()
     ui.open()
 end
 
-local function convert_buffer()
-    local buf = state.get_source_buffer()
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then
-        buf = vim.api.nvim_get_current_buf()
-    end
-
-    local buf_name = vim.api.nvim_buf_get_name(buf)
-    -- Розумне визначення вихідного шляху (тернарний оператор)
-    local out_path = (buf_name == "") 
-        and (vim.fn.expand("~") .. "/awards_output.htmp") 
-        or (vim.fn.fnamemodify(buf_name, ":p:r") .. ".htmp")
-
-    -- Створення папки, якщо її немає
-    local dir = vim.fn.fnamemodify(out_path, ":p:h")
-    if vim.fn.isdirectory(dir) == 0 then vim.fn.mkdir(dir, "p") end
-
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local block = get_awards_block_lines(lines)
-
-    if not block or #block == 0 then
-        utils.warn("Секцію " .. cfg.config.section .. " не знайдено!")
-        return
-    end
-
-    local data = parser.parse(block, cfg.config.separator)
-    local html_table = converter.html(data)
-    local clean_lines = vim.split(html_table, "\n", { trimempty = false })
-
-    -- Безпечний запис
-    local success, err = pcall(vim.fn.writefile, clean_lines, out_path)
-    if success then
-        utils.info("Файл успішно збережено за абсолютним шляхом:\n" .. out_path)
-    else
-        utils.error("Помилка запису файлу: " .. tostring(err))
-    end
-end
-
 function M.sync_org_buffer()
     local buf = state.get_source_buffer()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
@@ -172,7 +134,6 @@ end
 -- 
 function M.setup()
     local commands = {
-        Awards53Convert = convert_buffer,
         Awards53 = open_cards,
         Awards53abbr = function() 
             require("awards53.abbreviations").edit_config() 
