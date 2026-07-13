@@ -65,8 +65,8 @@ local function bind_keys()
         ["l"]   = { function() return state.next() end, true },
         ["[["]  = { function() state.first() end, true },
         ["]]"]  = { function() state.last() end, true },
-        ["<C-f>"] = { function() state.jump(5) end, true },
-        ["<C-b>"] = { function() state.jump(-5) end, true },
+        ["<M-h>"] = { function() state.jump(5) end, true },
+        ["<M-l>"] = { function() state.jump(-5) end, true },
         
         ["s"]   = { function() if vim.v.count > 0 then return state.goto_record(vim.v.count) end end, true },
         ["S"]   = { function() state.sort_by(cfg.config.default_sort) state.first() end, true },
@@ -81,8 +81,8 @@ local function bind_keys()
             state.last_field = state.field
         end, true },
         -- Зсув тексту полів у поточній картці (Ctrl+j / Ctrl+k)
-        ["<C-j>"] = { function() return state.move_field_content_down() end, true },
-        ["<C-k>"] = { function() return state.move_field_content_up() end, true },
+        ["<M-j>"] = { function() return state.move_field_content_down() end, true },
+        ["<M-k>"] = { function() return state.move_field_content_up() end, true },
         
         ["i"]   = { function() state.set_mode("INSERT") M.redraw() editor.open() end, false },
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false },

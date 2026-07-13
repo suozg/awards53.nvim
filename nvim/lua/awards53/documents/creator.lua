@@ -1,6 +1,6 @@
 local M = {}
 
-function M.create(tpl)
+function M.create_document(tpl)
     if not tpl or not tpl.org then
         vim.notify("Template has no .org file", vim.log.levels.ERROR)
         return nil
