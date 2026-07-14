@@ -117,7 +117,7 @@ function M.collapse_empty_fields_globally()
     return true
 end
 
--- Очищаємо пробіли та видаляємо цифри на початку до "53 окремої"
+
 -- Обробка ТІЛЬКИ для поточної картки
 function M.flatten_current_field()
     local record = M.current_record()
@@ -125,7 +125,6 @@ function M.flatten_current_field()
     local val = record[key]
     if not val then return false end
 
-    -- Склеюємо в один рядок для зручності обробки
     local combined = ""
     if type(val) == "table" then
         combined = table.concat(val, " ")
@@ -136,25 +135,23 @@ function M.flatten_current_field()
     M.snapshot()
     combined = combined:gsub("%s+", " ")
 
-    -- 1. Видаляємо ВСІ цифри (і пробіли біля них) від початку рядка ДО фрази "53 окремої"
-    -- Якщо цієї фрази в тексті немає, цей рядок просто нічого не змінить.
+    --  Перейменовуємо військову частину А0536 на повну назву бригади
+    combined = combined:gsub("військової частини А0536", "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу оперативного командування \"Схід\" Сухопутних військ Збройних сил України")
+
+    -- 1. Видаляємо ВСІ цифри від початку рядка ДО фрази "53 окремої"
     combined = combined:gsub("^(.-)%d+(.-53%s+окремої)", "%1%2")
 
-    -- 2. Шукаємо кому, пробіли та 10-значний код (РНОКПП) в кінці рядка
-    -- Выділяємо сам текст і окремо код
+    -- 2. Переносимо РНОКПП на новий рядок (прибираючи кому перед ним)
     local text_part, rnokpp_part = combined:match("^(.-)%s*,%s*([солдатик%s]*%d%d%d%d%d%d%d%d%d%d)%s*$")
 
-    -- Якщо знайшли такий код в кінці з комою перед ним
     if text_part and rnokpp_part then
-        -- Зберігаємо як дворядкове поле (текст на першому рядку, код на другому)
         record[key] = { text_part, rnokpp_part }
     else
-        -- Якщо раптом коми немає, просто зберігаємо очищений текст
         record[key] = { combined }
     end
 
     M.is_changed = true
-    utils.info("Поточне поле успішно відформатовано")
+    utils.info("Поточне поле успішно відформатовано та замінено в/ч")
     return true
 end
 
@@ -176,6 +173,9 @@ function M.flatten_field_globally()
 
             combined = combined:gsub("%s+", " ")
 
+            -- НОВА ЗАМІНА: Перейменовуємо військову частину А0536 на повну назву бригади
+            combined = combined:gsub("військової частини А0536", "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу оперативного командування \"Схід\" Сухопутних військ Збройних сил України")
+
             -- 1. Видаляємо цифри до "53 окремої"
             combined = combined:gsub("^(.-)%d+(.-53%s+окремої)", "%1%2")
 
@@ -194,13 +194,14 @@ function M.flatten_field_globally()
 
     if count > 0 then
         M.is_changed = true
-        utils.info("Глобально відформатовано карток: " .. count)
+        utils.info("Глобально відформатовано карток із заміною в/ч: " .. count)
         return true
     else
         utils.info("Не знайдено карток для обробки")
         return false
     end
 end
+
 
 -- Навігація по картках 
 local function adjust_navigation(new_pos)
@@ -391,47 +392,6 @@ function M.move_field_globally_down()
     utils.info("Поле переміщено вниз у всіх картках!")
     return true
 end
-
-
--- -- Зсунути вміст поточного поля НАЗАД (вгору / Ctrl+k)
--- function M.move_field_content_up()
---     local idx = M.field
---     if idx <= 1 then return false end -- Ми вже на першому полі
-
---     M.snapshot()
---     local record = M.current_record()
---     local current_key = tostring(idx)
---     local prev_key = tostring(idx - 1)
-
---     -- Міняємо значення місцями
---     record[current_key], record[prev_key] = record[prev_key], record[current_key]
-    
---     -- Змінюємо активне поле, щоб курсор «йшов» за текстом
---     M.field = idx - 1
---     M.last_field = M.field
---     M.is_changed = true
---     return true
--- end
-
--- -- Зсунути вміст поточного поля ВПЕРЕД (вниз / Ctrl+j)
--- function M.move_field_content_down()
---     local idx = M.field
---     if idx >= #M.headers then return false end -- Ми на останньому полі
-
---     M.snapshot()
---     local record = M.current_record()
---     local current_key = tostring(idx)
---     local next_key = tostring(idx + 1)
-
---     -- Міняємо значення місцями
---     record[current_key], record[next_key] = record[next_key], record[current_key]
-    
---     -- Курсор іде за текстом
---     M.field = idx + 1
---     M.last_field = M.field
---     M.is_changed = true
---     return true
--- end
 
 -- Ініціалізація та модифікація даних реєстру
 function M.set(data)

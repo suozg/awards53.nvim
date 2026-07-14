@@ -28,17 +28,52 @@ function _G.statusline()
     })
 end
 
+
+-- Прив'язуємо функцію до опції статусбара
 vim.opt.statusline = "%!v:lua.statusline()"
 
--- смена цвета статусбар при изменении режима
-local function set_statusline_mode_colors()
-    vim.api.nvim_set_hl(0, "StatusLineNormal", { bg = "#3c3836", fg = "#ebdbb2" })
-    vim.api.nvim_set_hl(0, "StatusLineInsert", { bg = "#2e7d32", fg = "#ffffff" }) -- зелёный
+-- Функція, яка динамічно змінює колір стандартного StatusLine залежно від режиму
+local function update_statusline_color()
+    -- Використовуємо defer_fn замість schedule, щоб дати командам розкладки 
+    -- повністю завершити свою роботу (даємо мікрозатримку у 10 мілісекунд)
+    vim.defer_fn(function()
+        local mode = vim.fn.mode()
+        
+        if mode:match("^[nN]") then
+            -- Normal режим (синій DWM)
+            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#005577", fg = "#ffffff", bold = true })
+        elseif mode == "i" or mode == "ic" or mode == "ix" then
+            -- Insert режим (зелений)
+            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#2e7d32", fg = "#ffffff", bold = true })
+        elseif mode:match("^[vV\22]") then
+            -- Visual режим
+            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#8f3f71", fg = "#ffffff", bold = true })
+        elseif mode == "t" then
+            -- Режим терміналу
+            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#d65d0e", fg = "#ffffff", bold = true })
+        else
+            -- Інші режими
+            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#3c3836", fg = "#ebdbb2" })
+        end
+        
+        -- Примусово перемальовуємо статусбар після зміни кольору
+        vim.cmd("redrawstatus")
+    end, 10) -- затримка 10мс
 end
 
-set_statusline_mode_colors()
+-- Створюємо автокоманди
+local status_group = vim.api.nvim_create_augroup("StatusLineModeColors", { clear = true })
 
+vim.api.nvim_create_autocmd({ 
+    "ModeChanged", 
+    "BufEnter", 
+    "WinEnter",
+    "InsertLeave",
+    "InsertEnter"
+}, {
+    group = status_group,
+    callback = update_statusline_color,
+})
 
-
-
+update_statusline_color()
 

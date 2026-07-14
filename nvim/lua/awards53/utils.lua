@@ -2,6 +2,24 @@ local M = {}
 
 local cfg = require("awards53")
 
+local ua_map = { 
+    h = "р", j = "о", k = "л", l = "д", i = "ш", a = "ф", s = "і", d = "в", f = "а", g = "п", y = "н", u = "г", n = "т", p = "з", 
+    H = "Р", J = "О", K = "Л", L = "Д", I = "Ш", A = "Ф", S = "І", D = "В", F = "А", G = "П", Y = "Н", U = "Г", N = "Т", P = "З", 
+    ["["] = "х", ["]"] = "ї", ["/"] = ".", ["?"] = ",", 
+} 
+
+---Транслює англійські символи гарячих клавіш на українську розкладку
+function M.translate_key(str) 
+    if str:match("<.*>") or str:match("^:") then return str end 
+    local result = "" 
+    for i = 1, #str do 
+        local char = str:sub(i, i) 
+        result = result .. (ua_map[char] or char) 
+    end 
+    return result 
+end
+
+
 local ns_id = vim.api.nvim_create_namespace("awards53_rnokpp")
 
 function M.highlight_rnokpp_in_buf(buf)

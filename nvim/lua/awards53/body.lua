@@ -18,7 +18,7 @@ function M.render()
 
         -- Заголовок поля і роздільник
         if is_active then
-            table.insert(lines, "[" .. field .. "  j▲ k▼ i►  F/F-  J/K  B  A O R X 0 e/E ]")
+            table.insert(lines, "[" .. field .. "  j▲ k▼ i►Редагувати  F/F-Додати  J/KПересунути  BВидалити  A O 0 ]")
             table.insert(lines, "" .. hr(50)) -- Верхня границя блока
         else
             table.insert(lines, "[" .. field .. "]") 

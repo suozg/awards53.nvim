@@ -25,25 +25,47 @@ map('n','<leader>ot',':OrgTodoToggle<CR>')
 -- <leader>e → открыть lf (split снизу)
 -- Ctrl+k → вверх в редактор
 -- Ctrl+j → обратно в lf
-
 local lf_win = nil
--- запуск
-map('n', '<leader>e', function()
-    vim.cmd("botright split")
+
+-- Запуск lf (split знизу на 15 рядків, можна налаштувати висоту)
+vim.keymap.set('n', '<leader>e', function()
+    -- Якщо вікно вже відкрите і валідне — просто переходимо в нього
+    if lf_win and vim.api.nvim_win_is_valid(lf_win) then
+        vim.api.nvim_set_current_win(lf_win)
+        vim.cmd("startinsert")
+        return
+    end
+
+    -- Створюємо спліт знизу
+    vim.cmd("botright 15split") 
     vim.cmd("terminal lf")
     vim.cmd("startinsert")
     lf_win = vim.api.nvim_get_current_win()
 end)
--- переход из lf
-map('t', '<C-k>', function()
-    vim.cmd([[stopinsert]])
-    vim.cmd([[wincmd k]])
+
+-- Перехід з lf вгору в редактор (працює в режимі терміналу 't')
+vim.keymap.set('t', '<C-k>', function()
+    -- Емулюємо натискання Ctrl+\ Ctrl+n (вихід з режиму вводу терміналу)
+    -- і відразу переходимо вгору
+    vim.api.nvim_feedkeys(
+        vim.api.nvim_replace_termcodes([[<C-\><C-n><C-w>k]], true, true, true),
+        'n',
+        false
+    )
 end)
--- возврат в lf
-map('n', '<C-j>', function()
+
+-- Повернення в lf (з нормального режиму 'n' редактора)
+vim.keymap.set('n', '<C-j>', function()
     if lf_win and vim.api.nvim_win_is_valid(lf_win) then
         vim.api.nvim_set_current_win(lf_win)
         vim.cmd("startinsert")
+    else
+        -- Якщо вікна немає (закрили), але натиснули C-j — просто відкриваємо заново
+        vim.api.nvim_feedkeys(
+            vim.api.nvim_replace_termcodes([[<leader>e]], true, true, true),
+            'm',
+            false
+        )
     end
 end)
 

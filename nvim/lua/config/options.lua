@@ -42,6 +42,6 @@ opt.foldenable = true
 opt.updatetime = 300
 opt.conceallevel = 2
 opt.concealcursor = 'nc'
-
+vim.g.netrw_banner = 0
 
 
