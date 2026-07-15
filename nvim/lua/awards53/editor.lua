@@ -155,25 +155,25 @@ function M.open()
             M.save_core(true) 
             actions.format_rnokpp_in_current_card()
             M.refresh_editor_buffer()
-        end, "Форматування РНОКПП виконано" },
+        end, nil },
 
         ["X"] = { function() 
             M.save_core(true)
             actions.format_rnokpp_in_all_cards()
             M.refresh_editor_buffer()
-        end, "Заміна РНОКПП у всіх картках виконана" },
+        end, nil },
 
         ["e"] = { function() 
             M.save_core(true)
             state.flatten_current_field()
             M.refresh_editor_buffer()
-        end, "Рядки поля склеєно" },
+        end, nil },
 
         ["E"] = { function() 
             M.save_core(true)
             state.flatten_field_globally()
             M.refresh_editor_buffer()
-        end, "Рядки поля склеєно в усіх картках" },
+        end, nil },
     }
     
     local key_opts = { buffer = M.buf, silent = true, noremap = true }
@@ -181,8 +181,9 @@ function M.open()
         local func, desc = data[1], data[2]
         local handler = function()
             func()
-            utils.info(desc)
+            if desc then utils.info(desc) end
         end
+
         vim.keymap.set("n", lhs, handler, key_opts)
         
         -- Використовуємо централізовану функцію!

@@ -5,9 +5,9 @@ local utils = require("awards53.utils")
 local replacement = "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу оперативного командування \"Схід\" Сухопутних військ Збройних сил України" 
 
 -- ====================================================================
--- Спільне ядро для форматування тексту однієї картки
+-- Спільне ядро для форматування тексту однієї картки (тепер публічне)
 -- ====================================================================
-local function format_text_core(text)
+function M.format_text_core(text)
     local rnokpp_start, rnokpp_end = text:find("(%d%d%d%d%d%d%d%d%d%d)")
     if not rnokpp_start then return nil end
 
@@ -23,12 +23,34 @@ local function format_text_core(text)
     new_text = new_text:gsub("військової%s+частини%s+А0536", replacement)
 
     -- 2. Видаляємо цифри перед назвою бригади
-    local safe_replacement = replacement:gsub("([^%w])", "%%%1")
-    new_text = new_text:gsub("^(.-)(" .. safe_replacement .. ")", function(prefix, brigade)
-        return prefix:gsub("%d", "") .. brigade
+    new_text = new_text:gsub("^(.-)(53%s+окремої.*)$", function(before, brigade)
+        before = before:gsub("%d+", "")
+        before = before:gsub("%s+", " ")
+        return before .. brigade
     end)
 
     return new_text
+end
+
+-- Допоміжна функція для форматування конкретного поля в записі
+local function process_field(record, field_id)
+    local lines = record[field_id] or {}
+    if #lines == 0 then return nil end
+
+    local text = table.concat(lines, "\n")
+    local formatted = M.format_text_core(text)
+    if not formatted then return nil end
+
+    return vim.split(formatted, "\n", { trimempty = false })
+end
+
+-- Допоміжна функція отримання активного поля з перевіркою
+local function get_active_field()
+    local field_id = state.field_name()
+    if not field_id then
+        utils.warn("Не вдалося визначити поточне поле")
+    end
+    return field_id
 end
 
 -- ====================================================================
@@ -83,27 +105,17 @@ function M.format_rnokpp_in_current_card()
     local record = state.current_record() 
     if not record then return end 
  
-    local field_id = state.field_name() 
-    if not field_id then 
-        utils.warn("Не вдалося визначити поточне поле") 
-        return 
-    end 
+    local field_id = get_active_field()
+    if not field_id then return end
 
-    local lines = record[field_id] or {} 
-    if #lines == 0 then return end 
- 
-    state.snapshot() 
-    local text = table.concat(lines, "\n") 
- 
-    -- Викликаємо наше спільне ядро
-    local formatted_text = format_text_core(text)
- 
-    if not formatted_text then
+    local formatted_lines = process_field(record, field_id)
+    if not formatted_lines then
         utils.warn("РНОКПП (10 цифр підряд) у Полі [" .. field_id .. "] не знайдено") 
         return
     end
  
-    record[field_id] = vim.split(formatted_text, "\n", { trimempty = false }) 
+    state.snapshot() 
+    record[field_id] = formatted_lines
     state.is_changed = true 
     utils.info("Поле [" .. field_id .. "] відформатоване") 
 end
@@ -118,36 +130,29 @@ function M.format_rnokpp_in_all_cards()
         return  
     end 
 
-    local field_id = state.field_name() 
-    if not field_id then 
-        utils.warn("Не вдалося визначити поточне поле") 
-        return 
-    end 
+    local field_id = get_active_field()
+    if not field_id then return end
 
     state.snapshot()  
-    local counter = 0
 
-    for _, record in ipairs(state.records) do 
-        local lines = record[field_id] or {} 
-        if #lines > 0 then 
-            local text = table.concat(lines, "\n") 
-            
-            -- Викликаємо те саме спільне ядро для кожної картки в циклі
-            local formatted_text = format_text_core(text)
-         
-            if formatted_text then
-                record[field_id] = vim.split(formatted_text, "\n", { trimempty = false }) 
-                counter = counter + 1
-            end
-        end 
-    end 
-
-    if counter > 0 then
-        state.is_changed = true 
-        utils.info("Автозаміну Поля [" .. field_id .. "] успішно застосовано до " .. counter .. " карток!") 
-    else
-        utils.warn("РНОКПП (10 цифр) не знайдено в полі [" .. field_id .. "] жодної картки") 
+    local result = {}
+    for i, record in ipairs(state.records) do
+        local formatted_lines = process_field(record, field_id)
+        if (record[field_id] or {} )[1] and not formatted_lines then
+            utils.warn("РНОКПП (10 цифр) не знайдено у картці №" .. i)
+            return
+        end
+        if formatted_lines then
+            result[i] = formatted_lines
+        end
     end
+
+    for i, formatted_lines in pairs(result) do
+        state.records[i][field_id] = formatted_lines
+    end
+
+    state.is_changed = true
+    utils.info("Автозаміну Поля [" .. field_id .. "] успішно застосовано до " .. tostring(#result) .. " карток!")
 end
 
-return M 
+return M

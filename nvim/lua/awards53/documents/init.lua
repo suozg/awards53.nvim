@@ -25,20 +25,31 @@ function M.open()
         end
 
         -------------------------------------------------------
-        -- Awards53
+        -- Awards53 (Генерація з таблиці)
         -------------------------------------------------------
         if mode == "awards" then
+            local output_name = tpl.id .. ".odt"
             require("awards53.documents.converter").compile_to_odt({
                 template = tpl,
                 awards_data = awards_data,
                 output_dir = vim.fn.getcwd(),
-                output_name = tpl.id .. ".odt",
+                output_name = output_name,
             })
+            
+            -- Даємо Neovim 150мс на закриття терміналу і відмальовування екрану,
+            -- а потім примусово друкуємо повідомлення
+            vim.defer_fn(function()
+                vim.cmd("redraw")
+                vim.api.nvim_echo({
+                    { "Документ успішно створено: ", "Identifier" },
+                    { output_name, "String" }
+                }, true, {})
+            end, 150)
             return
         end
 
         -------------------------------------------------------
-        -- Существующий Org
+        -- Існуючий Org
         -------------------------------------------------------
         if mode == "org" then
             require("awards53.documents.converter").compile_to_odt({
@@ -48,7 +59,7 @@ function M.open()
         end
 
         -------------------------------------------------------
-        -- Новый документ
+        -- Новий документ
         -------------------------------------------------------
         if mode == "new" then
             local file = require("awards53.documents.creator").create_document(tpl)

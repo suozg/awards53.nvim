@@ -1,8 +1,8 @@
 local M = {}
 
-local cfg = require("awards53") --
-local utils = require("awards53.utils") --
-local serializer = require("awards53.serializer") --
+local cfg = require("awards53") 
+local utils = require("awards53.utils") 
+local serializer = require("awards53.serializer") 
 local parser = require("awards53.parser") 
 
 -- Початковий стан
@@ -65,20 +65,17 @@ end
 
 -- зсув усіх заповнених полів на початок, а пустих — у кінець (для кожної картки окремо)
 function M.collapse_empty_fields_globally()
-    M.snapshot() -- Зберігаємо стан для скасування (Undo)
+    M.snapshot() 
 
     local total_headers = #M.headers
 
-    -- Проходимо по кожній картці в базі даних
     for _, record in ipairs(M.records) do
-        -- Збираємо лише ті значення, які не є пустими
         local non_empty_values = {}
         
         for idx = 1, total_headers do
             local key = tostring(idx)
             local val = record[key]
             
-            -- Перевіряємо, чи є в полі реальний текст
             local has_text = false
             if type(val) == "table" then
                 for _, line in ipairs(val) do
@@ -91,65 +88,61 @@ function M.collapse_empty_fields_globally()
                 has_text = true
             end
 
-            -- Якщо поле не пусте, запам'ятовуємо його вміст
             if has_text then
                 table.insert(non_empty_values, val)
             end
         end
 
-        -- Перезаписуємо поля картки: спочатку заповнені, потім пусті
         for idx = 1, total_headers do
             local key = tostring(idx)
             if idx <= #non_empty_values then
                 record[key] = non_empty_values[idx]
             else
-                record[key] = { "" } -- Очищаємо хвіст
+                record[key] = { "" } 
             end
         end
     end
 
-    -- Скидаємо курсор на перше поле, щоб уникнути виходу за межі
     M.field = 1
     M.last_field = 1
     M.is_changed = true
     
-    utils.info("Ядерне очищення завершено: пусті поля схлопнуто в усіх картках!")
+    utils.info("Порожні поля видалені в усіх картках!")
     return true
 end
 
+-- =========================================================================
+-- Допоміжна функція для обробки та переформатування тексту поля
+-- =========================================================================
+local function process_flat_field(record, key)
+    local val = record[key]
+    if not val then return nil end
+
+    local combined = type(val) == "table" and table.concat(val, " ") or tostring(val)
+    combined = combined:gsub("%s+", " ")
+
+    -- Використовуємо спільну логіку форматування з actions.lua
+    local actions = require("awards53.actions")
+    local formatted = actions.format_text_core(combined)
+
+    if formatted then
+        return vim.split(formatted, "\n", { trimempty = false })
+    else
+        return { combined }
+    end
+end
 
 -- Обробка ТІЛЬКИ для поточної картки
 function M.flatten_current_field()
     local record = M.current_record()
+    if not record then return false end
+    
     local key = tostring(M.field)
-    local val = record[key]
-    if not val then return false end
-
-    local combined = ""
-    if type(val) == "table" then
-        combined = table.concat(val, " ")
-    else
-        combined = tostring(val)
-    end
+    local result = process_flat_field(record, key)
+    if not result then return false end
 
     M.snapshot()
-    combined = combined:gsub("%s+", " ")
-
-    --  Перейменовуємо військову частину А0536 на повну назву бригади
-    combined = combined:gsub("військової частини А0536", "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу оперативного командування \"Схід\" Сухопутних військ Збройних сил України")
-
-    -- 1. Видаляємо ВСІ цифри від початку рядка ДО фрази "53 окремої"
-    combined = combined:gsub("^(.-)%d+(.-53%s+окремої)", "%1%2")
-
-    -- 2. Переносимо РНОКПП на новий рядок (прибираючи кому перед ним)
-    local text_part, rnokpp_part = combined:match("^(.-)%s*,%s*([солдатик%s]*%d%d%d%d%d%d%d%d%d%d)%s*$")
-
-    if text_part and rnokpp_part then
-        record[key] = { text_part, rnokpp_part }
-    else
-        record[key] = { combined }
-    end
-
+    record[key] = result
     M.is_changed = true
     utils.info("Поточне поле успішно відформатовано та замінено в/ч")
     return true
@@ -162,32 +155,9 @@ function M.flatten_field_globally()
     local count = 0
 
     for _, record in ipairs(M.records) do
-        local val = record[key]
-        if val then
-            local combined = ""
-            if type(val) == "table" then
-                combined = table.concat(val, " ")
-            else
-                combined = tostring(val)
-            end
-
-            combined = combined:gsub("%s+", " ")
-
-            -- НОВА ЗАМІНА: Перейменовуємо військову частину А0536 на повну назву бригади
-            combined = combined:gsub("військової частини А0536", "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу оперативного командування \"Схід\" Сухопутних військ Збройних сил України")
-
-            -- 1. Видаляємо цифри до "53 окремої"
-            combined = combined:gsub("^(.-)%d+(.-53%s+окремої)", "%1%2")
-
-            -- 2. Переносимо РНОКПП на новий рядок (прибираючи кому)
-            local text_part, rnokpp_part = combined:match("^(.-)%s*,%s*([солдатик%s]*%d%d%d%d%d%d%d%d%d%d)%s*$")
-
-            if text_part and rnokpp_part then
-                record[key] = { text_part, rnokpp_part }
-            else
-                record[key] = { combined }
-            end
-
+        local result = process_flat_field(record, key)
+        if result then
+            record[key] = result
             count = count + 1
         end
     end
@@ -287,7 +257,6 @@ function M.paste_after()
     local parsed = parser.parse(vim.split(text, "\n", { trimempty = false }), cfg.config.separator) 
     if not parsed.records or #parsed.records == 0 then return false end 
 
-    -- Синхронізація унікальних заголовків
     for _, ph in ipairs(parsed.headers) do
         if not vim.tbl_contains(M.headers, ph) then table.insert(M.headers, ph) end
     end
@@ -305,7 +274,6 @@ end
 -- ЛОКАЛЬНЕ ПЕРЕМІЩЕННЯ (Тільки в поточній картці)
 -- =========================================================================
 
--- Зсунути вміст поточного поля НАЗАД (вгору / Ctrl+k) лише в цій картці
 function M.move_field_content_up()
     local idx = M.field
     if idx <= 1 then return false end 
@@ -317,7 +285,6 @@ function M.move_field_content_up()
     local current_key = tostring(idx)
     local prev_key = tostring(idx - 1)
 
-    -- Міняємо значення місцями ТІЛЬКИ в поточній картці
     record[current_key], record[prev_key] = record[prev_key], record[current_key]
     
     M.field = idx - 1
@@ -326,7 +293,6 @@ function M.move_field_content_up()
     return true
 end
 
--- Зсунути вміст поточного поля ВПЕРЕД (вниз / Ctrl+j) лише в цій картці
 function M.move_field_content_down()
     local idx = M.field
     if idx >= #M.headers then return false end 
@@ -338,7 +304,6 @@ function M.move_field_content_down()
     local current_key = tostring(idx)
     local next_key = tostring(idx + 1)
 
-    -- Міняємо значення місцями ТІЛЬКИ в поточній картці
     record[current_key], record[next_key] = record[next_key], record[current_key]
     
     M.field = idx + 1
@@ -351,7 +316,6 @@ end
 -- ГЛОБАЛЬНЕ ПЕРЕМІЩЕННЯ (Структурне, для всіх карток разом)
 -- =========================================================================
 
--- Перемістити поле вгору ГЛОБАЛЬНО (для всіх карток)
 function M.move_field_globally_up()
     local idx = M.field
     if idx <= 1 then return false end 
@@ -360,7 +324,6 @@ function M.move_field_globally_up()
     local current_key = tostring(idx)
     local prev_key = tostring(idx - 1)
 
-    -- Міняємо місцями значення цього поля В УСІХ КАРТКАХ одночасно
     for _, record in ipairs(M.records) do
         record[current_key], record[prev_key] = record[prev_key], record[current_key]
     end
@@ -372,7 +335,6 @@ function M.move_field_globally_up()
     return true
 end
 
--- Перемістити поле вниз ГЛОБАЛЬНО (для всіх карток)
 function M.move_field_globally_down()
     local idx = M.field
     if idx >= #M.headers then return false end 
@@ -381,7 +343,6 @@ function M.move_field_globally_down()
     local current_key = tostring(idx)
     local next_key = tostring(idx + 1)
 
-    -- Міняємо місцями значення цього поля В УСІХ КАРТКАХ одночасно
     for _, record in ipairs(M.records) do
         record[current_key], record[next_key] = record[next_key], record[current_key]
     end
@@ -393,7 +354,6 @@ function M.move_field_globally_down()
     return true
 end
 
--- Ініціалізація та модифікація даних реєстру
 function M.set(data)
     data = data or {} 
     M.records, M.headers = data.records or {}, data.headers or {} 
@@ -478,28 +438,21 @@ end
 function M.new_field(default_value)
     M.snapshot() 
 
-    -- 1. Визначаємо позицію для вставки (після поточного поля)
     local current_idx = M.field or #M.headers
     local insert_idx = current_idx + 1
     local total_headers = #M.headers
 
-    -- 2. Значення за замовчуванням
     local val = default_value or ""
 
-    -- 3. Зсуваємо ДАНІ в картках, звільняючи індекс insert_idx
     for _, record in ipairs(M.records) do
-        -- Рухаємося з кінця до insert_idx
         for i = total_headers, insert_idx, -1 do
             record[tostring(i + 1)] = record[tostring(i)]
         end
-        -- Записуємо нове значення в середину
         record[tostring(insert_idx)] = { val }
     end
 
-    -- 4. Оновлюємо M.headers. 
     table.insert(M.headers, tostring(total_headers + 1)) 
 
-    -- 5. Переносимо курсор на нове поле (воно візуально буде в середині)
     M.field = insert_idx
     M.last_field, M.is_changed = M.field, true 
     return true
@@ -526,4 +479,4 @@ function M.sync_to_disk()
     require("awards53.commands").sync_org_buffer()
 end
 
-return M 
+return M

@@ -58,19 +58,23 @@ local function bind_keys()
         ["s"]   = { function() if vim.v.count > 0 then return state.goto_record(vim.v.count) end end, true }, 
         ["S"]   = { function() state.sort_by(cfg.config.default_sort) state.first() end, true }, 
         
-        ["j"]   = { function() 
-            state.field = state.field_index() < #state.headers_list() and state.field_index() + 1 or 1 
-            state.last_field = state.field 
-        end, true }, 
+        ["j"] = { function() return state.next_field() end, true },
+        ["k"] = { function() return state.prev_field() end, true },
+
+        -- ["j"]   = { function() 
+        --     state.field = state.field_index() < #state.headers_list() and state.field_index() + 1 or 1 
+        --     state.last_field = state.field 
+        -- end, true }, 
         
-        ["k"]   = { function() 
-            state.field = state.field_index() > 1 and state.field_index() - 1 or #state.headers_list() 
-            state.last_field = state.field 
-        end, true }, 
+        -- ["k"]   = { function() 
+        --     state.field = state.field_index() > 1 and state.field_index() - 1 or #state.headers_list() 
+        --     state.last_field = state.field 
+        -- end, true }, 
+        
         -- Зсув тексту полів у поточній картці (Shift+j / k) 
         ["J"] = { function() return state.move_field_content_down() end, true }, 
         ["K"] = { function() return state.move_field_content_up() end, true }, 
-         -- Зсув тексту полів у поточній картці (Leader+j / k) 
+         -- Зсув тексту полів у картці по всьому файлу (Leader+j / k) 
         ["<leader>j"] = { function() return state.move_field_globally_down() end, true }, 
         ["<leader>k"] = { function() return state.move_field_globally_up() end, true }, 
         

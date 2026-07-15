@@ -39,7 +39,6 @@ function M.setup(opts)
                     vim.api.nvim_set_current_buf(args.buf)
                     vim.cmd("Awards53")
                     
-                    -- ДИНАМІЧНЕ НАЛАШТУВАННЯ:
                     -- Після успішного відкриття карток беремо перше ліпше поле 
                     -- файлу як дефолтне для швидкого пошуку (клавіша /) та сортування (клавіша S)
                     local headers = state.headers_list()
