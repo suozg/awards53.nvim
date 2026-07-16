@@ -20,6 +20,8 @@ map('n','<leader>oa',':OrgAgenda<CR>')
 map('n','<leader>oc',':OrgCapture<CR>')
 map('n','<leader>ot',':OrgTodoToggle<CR>')
 
+map('i', '<Up>', '<cmd>normal! g<Up><CR>')
+map('i', '<Down>', '<cmd>normal! g<Down><CR>')
 
 -- файловий менеджер lf 
 -- <leader>e → открыть lf (split снизу)

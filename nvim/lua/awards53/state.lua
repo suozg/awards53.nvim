@@ -63,16 +63,24 @@ function M.undo_last()
     return true
 end
 
--- зсув усіх заповнених полів на початок, а пустих — у кінець (для кожної картки окремо)
+-- схлопування порожніх полів по всьому файлу 
 function M.collapse_empty_fields_globally()
-    M.snapshot() 
+    M.snapshot()
 
-    local total_headers = #M.headers
+    local original_headers_count = #M.headers
+    if original_headers_count <= 1 then
+        utils.info("У базі лише 1 поле. Нічого видаляти.")
+        return false
+    end
 
-    for _, record in ipairs(M.records) do
+    local max_non_empty_index = 1
+    local record_with_max_fields = 1
+
+    -- Крок 1. Спочатку зсуваємо заповнені поля вліво всередині кожної картки окремо
+    for r_idx, record in ipairs(M.records) do
         local non_empty_values = {}
         
-        for idx = 1, total_headers do
+        for idx = 1, original_headers_count do
             local key = tostring(idx)
             local val = record[key]
             
@@ -93,23 +101,127 @@ function M.collapse_empty_fields_globally()
             end
         end
 
-        for idx = 1, total_headers do
+        -- Шукаємо, у якій саме картці найбільше заповнених полів
+        if #non_empty_values > max_non_empty_index then
+            max_non_empty_index = #non_empty_values
+            record_with_max_fields = r_idx
+        end
+
+        -- Тимчасово очищуємо хвости в рекорді
+        for idx = 1, original_headers_count do
             local key = tostring(idx)
             if idx <= #non_empty_values then
                 record[key] = non_empty_values[idx]
             else
-                record[key] = { "" } 
+                record[key] = nil
             end
         end
     end
 
-    M.field = 1
-    M.last_field = 1
+    -- Крок 2. Скорочуємо глобальну структуру (M.headers) до фактичного максимуму заповнених полів
+    local new_headers = {}
+    for i = 1, max_non_empty_index do
+        table.insert(new_headers, tostring(i))
+    end
+    M.headers = new_headers
+
+    -- Крок 3. Повертаємо порожні поля-заглушки для тих карток, які мають менше полів, ніж лідер
+    for _, record in ipairs(M.records) do
+        for idx = 1, max_non_empty_index do
+            local key = tostring(idx)
+            if record[key] == nil then
+                record[key] = { "" }
+            end
+        end
+    end
+
+    -- Крок 4. Коригуємо позицію активного поля
+    if M.field > #M.headers then
+        M.field = #M.headers
+    end
+    M.last_field = M.field
     M.is_changed = true
+
+    -- Крок 5. Рахуємо статистику для повідомлення користувачеві
+    local deleted_count = original_headers_count - max_non_empty_index
     
-    utils.info("Порожні поля видалені в усіх картках!")
+    -- Рахуємо мінімальну кількість полів серед усіх карток, щоб знайти порожні "хвости"
+    local min_non_empty_index = max_non_empty_index
+    for _, record in ipairs(M.records) do
+        local current_count = 0
+        for idx = 1, max_non_empty_index do
+            local val = record[tostring(idx)]
+            -- Перевіряємо чи поле реально заповнене
+            local has_text = false
+            if type(val) == "table" then
+                for _, line in ipairs(val) do
+                    if vim.trim(line) ~= "" then has_text = true break end
+                end
+            elseif type(val) == "string" and vim.trim(val) ~= "" then
+                has_text = true
+            end
+            if has_text then current_count = current_count + 1 end
+        end
+        if current_count < min_non_empty_index then
+            min_non_empty_index = current_count
+        end
+    end
+
+    -- Формуємо діапазон видалених глобальних полів
+    local deleted_range = ""
+    if deleted_count == 1 then
+        deleted_range = tostring(original_headers_count)
+    elseif deleted_count > 1 then
+        deleted_range = string.format("%d-%d", max_non_empty_index + 1, original_headers_count)
+    end
+
+    -- Формуємо діапазон порожніх полів, що залишилися внизу інших карток через лідера
+    local left_empty_range = ""
+    if max_non_empty_index > min_non_empty_index then
+        if (max_non_empty_index - min_non_empty_index) == 1 then
+            left_empty_range = tostring(max_non_empty_index)
+        else
+            left_empty_range = string.format("%d-%d", min_non_empty_index + 1, max_non_empty_index)
+        end
+    end
+
+    -- Виводимо інформацію користувачу
+    local deleted_count = original_headers_count - max_non_empty_index
+
+    local deleted_range = deleted_count == 1 and tostring(original_headers_count) 
+        or string.format("%d-%d", max_non_empty_index + 1, original_headers_count)
+
+    local left_empty_range = ""
+    if max_non_empty_index > min_non_empty_index then
+        left_empty_range = (max_non_empty_index - min_non_empty_index) == 1 and tostring(max_non_empty_index)
+            or string.format("%d-%d", min_non_empty_index + 1, max_non_empty_index)
+    end
+
+    if deleted_count > 0 and left_empty_range ~= "" then
+        utils.info(string.format(
+            "Видалено [%s] порожніх полів. Але через Картку №%d (має %d) в інших залишилися порожніми поля [%s].",
+            deleted_range, record_with_max_fields, max_non_empty_index, left_empty_range
+        ))
+    elseif deleted_count > 0 then
+        utils.info(string.format(
+            "Успішно видалено [%s] порожніх полів. Тепер у всіх картках порівну полів (%d).",
+            deleted_range, max_non_empty_index
+        ))
+    elseif left_empty_range ~= "" then
+        utils.info(string.format(
+            "Порожні поля не видалялися. Через Картку №%d (має %d полів) в інших картках порожніють поля [%s].",
+            record_with_max_fields, max_non_empty_index, left_empty_range
+        ))
+    else
+        utils.info(string.format(
+            "Всі %d полів повністю заповнені в усіх картках. Нічого видаляти.",
+            original_headers_count
+        ))
+    end
+
     return true
 end
+
 
 -- =========================================================================
 -- Допоміжна функція для обробки та переформатування тексту поля

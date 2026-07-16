@@ -41,7 +41,8 @@ local function metadata_from_template(tpl)
     return meta
 end
 
--- Екранування спецсимволів для XML, щоб не ламалася розмітка
+
+-- Екранування спецсимволів для XML
 local function esc_xml(s)
     if not s then return "" end
     s = tostring(s)
@@ -50,39 +51,53 @@ local function esc_xml(s)
     s = s:gsub(">", "&gt;")
     s = s:gsub('"', "&quot;")
     s = s:gsub("'", "&apos;")
+    
+    -- 1. Замінюємо \n на системний перенос рядка LibreOffice
+    s = s:gsub("\\n", "<text:line-break/>")
+    
+    -- 2. замінюємо \t на тег табуляції ODF
+    s = s:gsub("\\t", "<text:tab/>")
+    
     return s
 end
 
--- ГЕНЕРАТОР ПРАВИЛЬНОЇ ТАБЛИЦІ ДЛЯ LIBREOFFICE
-local function generate_odt_xml_table(data)
+-- ГЕНЕРАТОР РЯДКІВ З АВТОНУМЕРАЦІЄЮ
+local function generate_odt_xml_rows(data, include_headers, use_autonum)
+    -- Якщо передали nil або порожню таблицю без заголовків
+    if not data or not data.headers then
+        return ""
+    end
+
     local out = {}
     
-    -- Початок ODF-таблиці
-    table.insert(out, '<table:table table:name="AwardsTable">')
-    
-    -- Оголошуємо специфікацію колонок відповідно до заголовків
-    for _ = 1, #data.headers do
-        table.insert(out, '<table:table-column/>')
-    end
-
-    -- 1. Генерація рядка заголовків
-    table.insert(out, '<table:table-row>')
-    for _, h in ipairs(data.headers) do
-        table.insert(out, '<table:table-cell office:value-type="string">')
-        table.insert(out, '<text:p>' .. esc_xml(h) .. '</text:p>')
-        table.insert(out, '</table:table-cell>')
-    end
-    table.insert(out, '</table:table-row>')
-
-    -- 2. Заповнення рядків даними карток військовослужбовців
-    for _, rec in ipairs(data.records) do
+    -- 1. Додаємо заголовки (якщо створюється а не додається таблиця)
+    if include_headers and data.headers then
         table.insert(out, '<table:table-row>')
+        if use_autonum then
+            table.insert(out, '<table:table-cell office:value-type="string"><text:p>№ з/п</text:p></table:table-cell>')
+        end
+        for _, h in ipairs(data.headers) do
+            table.insert(out, '<table:table-cell office:value-type="string"><text:p>' .. esc_xml(h) .. '</text:p></table:table-cell>')
+        end
+        table.insert(out, '</table:table-row>')
+    end
+
+    -- 2. Заповнення рядків даними
+    for i, rec in ipairs(data.records) do
+        table.insert(out, '<table:table-row>')
+        
+        if use_autonum then
+            table.insert(out, '<table:table-cell office:value-type="string">')
+            table.insert(out, '<text:p>' .. tostring(i) .. '</text:p>')
+            table.insert(out, '</table:table-cell>')
+        end
+
+        -- Заповнюємо решту стовпчиків
         for _, h in ipairs(data.headers) do
             table.insert(out, '<table:table-cell office:value-type="string">')
             
-            local value = rec[h] or {}
+            local value = rec[h] or ""
             if type(value) == "table" then
-                -- Якщо всередині однієї комірки є кілька рядків, кожен обгортаємо в <text:p>
                 for _, line in ipairs(value) do
                     if vim.trim(line) ~= "" then
                         table.insert(out, '<text:p>' .. esc_xml(line) .. '</text:p>')
@@ -97,13 +112,11 @@ local function generate_odt_xml_table(data)
         table.insert(out, '</table:table-row>')
     end
 
-    table.insert(out, '</table:table>')
     return table.concat(out, "")
 end
 
 
 local function update_content_xml(content_xml_path, meta, awards_data)
-
     local f = io.open(content_xml_path, "r")
     if not f then
         return false
@@ -112,7 +125,7 @@ local function update_content_xml(content_xml_path, meta, awards_data)
     local xml = f:read("*a")
     f:close()
 
-    -- текстовые поля
+    -- 1. Заміна текстових полів (працює завжди для листів)
     for key, value in pairs(meta.fields) do
         xml = xml:gsub(
             "DOCFIELD_" .. key,
@@ -120,24 +133,71 @@ local function update_content_xml(content_xml_path, meta, awards_data)
         )
     end
 
-    -- таблица
-    local table_xml
+    -- 2. ОБРОБКА ТАБЛИЦІ (Тільки якщо маркер дійсно є в шаблоні!)
+    local has_table_marker = xml:find("DOCFIELD_TABLE")
 
-    if awards_data then
-        table_xml = generate_odt_xml_table(awards_data)
-    else
-        table_xml =
-[[<table:table table:name="Errors"><table:table-column/><table:table-row><table:table-cell><text:p>[Помилка: Базу даних Awards53 не знайдено]</text:p></table:table-cell></table:table-row></table:table>]]
+    if has_table_marker then
+        -- Визначаємо, чи потрібна автонумерація
+        local use_autonum = false
+        if awards_data and awards_data.headers then
+            local pre_marker_xml = xml:match("^(.-)</table:table>%s*<text:p[^>]*>%s*DOCFIELD_TABLE")
+            if not pre_marker_xml then
+                pre_marker_xml = xml:match("^(.-)DOCFIELD_TABLE")
+            end
+            
+            if pre_marker_xml then
+                local table_content = pre_marker_xml:match(".*<table:table%s[^>]*>(.-)$")
+                if table_content then
+                    local col_count = 0
+                    for _ in table_content:gmatch("<table:table%-column") do
+                        col_count = col_count + 1
+                    end
+                    
+                    if col_count > #awards_data.headers then
+                        use_autonum = true
+                    end
+                end
+            end
+        end
+
+        -- Генеруємо XML-рядки таблиці
+        local rows_xml = ""
+        if awards_data and awards_data.headers and #awards_data.headers > 0 then
+            rows_xml = generate_odt_xml_rows(awards_data, false, use_autonum)
+        else
+            -- показуємо помилку, бо користувач вибрав табличний шаблон, але забув підключити базу
+            rows_xml = [[<table:table-row><table:table-cell><text:p>[Помилка: Дані для таблиці Awards53 не знайдено]</text:p></table:table-cell></table:table-row>]]
+        end
+
+        -- Вставляємо рядки в таблицю шаблону
+        local row_with_marker_pattern = "<table:table%-row[^>]*>.-DOCFIELD_TABLE.-</table:table%-row>"
+
+        if xml:find(row_with_marker_pattern) then
+            xml = xml:gsub(row_with_marker_pattern, rows_xml)
+        else
+            -- Якщо маркер стоїть відразу після таблиці
+            local pattern = "</table:table>%s*<text:p[^>]*>%s*DOCFIELD_TABLE%s*</text:p>"
+            if xml:find(pattern) then
+                xml = xml:gsub(pattern, rows_xml .. "</table:table>")
+            else
+                -- Fallback (створюємо нову таблицю, тільки якщо дані реально є)
+                if awards_data and awards_data.headers and #awards_data.headers > 0 then
+                    local fallback_table = '<table:table table:name="AwardsTable">'
+                    if use_autonum then
+                        fallback_table = fallback_table .. '<table:table-column/>'
+                    end
+                    for _ = 1, #awards_data.headers do
+                        fallback_table = fallback_table .. '<table:table-column/>'
+                    end
+                    fallback_table = fallback_table .. generate_odt_xml_rows(awards_data, true, use_autonum) .. '</table:table>'
+                    
+                    xml = xml:gsub("DOCFIELD_TABLE", fallback_table)
+                end
+            end
+        end
     end
 
-    local pattern = "<text:p[^>]*>DOCFIELD_TABLE</text:p>"
-
-    if xml:find(pattern) then
-        xml = xml:gsub(pattern, table_xml)
-    else
-        xml = xml:gsub("DOCFIELD_TABLE", table_xml)
-    end
-
+    -- 3. Записуємо готовий результат
     f = io.open(content_xml_path, "w")
     if not f then
         return false
