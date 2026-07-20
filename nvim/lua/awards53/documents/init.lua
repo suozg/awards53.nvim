@@ -25,30 +25,46 @@ function M.open()
         end
 
         -------------------------------------------------------
-        -- Awards53 (Генерація з таблиці)
+        -- Awards53 (Генерація таблиці + Паралельний Org з часом)
         -------------------------------------------------------
         if mode == "awards" then
-            local output_name = tpl.id .. ".odt"
+            local output_dir = vim.fn.getcwd()
+            
+            -- Формуємо часову мітку (наприклад: 20260720_1940)
+            local timestamp = os.date("%Y%m%d_%H%M")
+            
+            -- Базове ім'я файлу на основі шаблону та часу (напр., templateId_20260720_1940)
+            local base_name = string.format("%s_%s", tpl.id, timestamp)
+            
+            local odt_output_name = base_name .. ".odt"
+            local org_output_name = base_name .. ".org"
+
+            -- 1. Спершу створюємо паралельний текстовий .org з потрібним ім'ням
+            -- Передаємо org_output_name як третій аргумент
+            require("awards53.documents.converter").create_parallel_org(awards_data, output_dir, org_output_name)
+
+            -- 2. Потім штатно запускаємо збірку ODT з таблицею
             require("awards53.documents.converter").compile_to_odt({
                 template = tpl,
                 awards_data = awards_data,
-                output_dir = vim.fn.getcwd(),
-                output_name = output_name,
+                output_dir = output_dir,
+                output_name = odt_output_name,
             })
             
-            -- Даємо Neovim 150мс на закриття терміналу і відмальовування екрану,
-            -- а потім примусово друкуємо повідомлення
+            -- Повертаємо гарне сповіщення на екран
             vim.defer_fn(function()
                 vim.cmd("redraw")
                 vim.api.nvim_echo({
-                    { "Документ успішно створено: ", "Identifier" },
-                    { output_name, "String" }
+                    { "Документи успішно створено у: ", "Identifier" },
+           { odt_output_name, "String" },
+                    { " та ", "Normal" },
+                    { org_output_name, "String" }
                 }, true, {})
             end, 150)
             return
         end
-
-        -------------------------------------------------------
+        
+        -- -------------------------------------------------------
         -- Існуючий Org
         -------------------------------------------------------
         if mode == "org" then

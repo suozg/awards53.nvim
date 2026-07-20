@@ -1,5 +1,6 @@
 local M = {}
 local context = require("awards53.documents.context")
+local inflect = require("awards53.inflect")
 
 -- Функція для парсингу метаданих з .org файлу
 local function read_org_metadata(filepath)
@@ -346,6 +347,66 @@ function M.convert_current()
         "Поточний буфер не можна конвертувати.",
         vim.log.levels.ERROR
     )
+end
+
+-- функция создания параллельного файла (1 поле ПІБ)
+function M.create_parallel_org(awards_data, output_dir, org_filename)
+    if not awards_data or not awards_data.headers or #awards_data.headers == 0 then
+        return
+    end
+
+    local first_field_key = awards_data.headers[1]
+    local total_records = #awards_data.records
+    local list_lines = {}
+
+    -- 1. Формуємо нумерований список із правильними знаками пунктуації та переносами
+    for i, record in ipairs(awards_data.records) do
+        local raw_value = record[first_field_key] or ""
+        local original_text = ""
+
+        if type(raw_value) == "table" then
+            original_text = table.concat(raw_value, " ")
+        else
+            original_text = tostring(raw_value)
+        end
+
+        -- Відмінюємо ПІБ за допомогою твого модуля
+        local modified_value = inflect.to_accusative(original_text)
+        
+        -- Визначаємо знак в кінці рядка: якщо останній — крапка, якщо ні — крапка з комою
+        local separator = (i == total_records) and "." or ";"
+        
+        -- Формуємо рядок списку. Додаємо \n в кінці кожного рядка (крім останнього),
+        -- щоб LibreOffice переносив їх на новий рядок всередині одного абзацу.
+        local line_suffix = (i == total_records) and "" or "\\n"
+        
+        table.insert(list_lines, string.format("%d. %s%s%s", i, modified_value, separator, line_suffix))
+    end
+
+    -- Збираємо весь список в один суцільний рядок для поля #+BODY
+    local body_content = table.concat(list_lines, " ")
+
+    -- 2. Створюємо вміст за твоїм шаблоном, вставляючи список у середнє поле (#+BODY)
+    local org_template = {
+        "#+ODT_STYLES_FILE: /home/alex320388/.config/nvim/templates/templates53/documents/letter/letter.ott",
+        "#+DOC53_REQUIRED: #+HEAD,#+BODY,#+FOOTER",
+        "#+HEAD: АДРЕСАТ",
+        "#+BODY: " .. body_content,
+        "#+FOOTER: Командир військової частини А0536"
+    }
+
+    -- 3. Записуємо готовий файл поруч
+    local intermediate_org = output_dir .. "/" .. org_filename
+    
+    local f = io.open(intermediate_org, "w")
+    if f then
+        f:write(table.concat(org_template, "\n"))
+        f:close()
+
+        -- відкриваємо файл в vim
+        vim.cmd("edit " .. vim.fn.fnameescape(intermediate_org))
+    end
+
 end
 
 return M
