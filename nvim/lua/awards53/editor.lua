@@ -62,7 +62,7 @@ function M.open()
     vim.api.nvim_buf_set_lines(M.buf, 0, -1, false, content_lines)
     require("awards53.abbreviations").register_buffer_abbreviations(M.buf)
     
-    vim.api.nvim_buf_set_name(M.buf, string.format("Awards53 %d/%d (%s)", state.index(), state.count(), field))
+    vim.api.nvim_buf_set_name(M.buf, string.format("%d/%d (поле %s)", state.index(), state.count(), field))
     vim.api.nvim_win_set_cursor(M.win, { 1, 0 })
 
     -- Налаштування основного вікна
@@ -134,6 +134,12 @@ function M.open()
         utils.info("Зміни збережено в org-файл!")
     end
 
+    -- Спільна функція для збереження
+    local function save_and_notify()
+        M.save_core()
+        utils.info("Зміни збережено в org-файл!")
+    end
+
     -- Перехоплення збереження
     vim.api.nvim_create_autocmd("BufWriteCmd", { buffer = M.buf, group = group, callback = save_and_notify })
     vim.api.nvim_buf_create_user_command(M.buf, "W", save_and_notify, {})
@@ -145,9 +151,18 @@ function M.open()
         vim.cmd("tabclose!")
     end, { bang = true })
 
-    -- Командні абревіатури
+    -- Командні абревіатури (English + Українська)
+    -- Латинські абревіатури
     vim.cmd("cnoreabbrev <buffer> q Q")
     vim.cmd("cnoreabbrev <buffer> q! Q!")
+    vim.cmd("cnoreabbrev <buffer> w W")
+    vim.cmd("cnoreabbrev <buffer> w! W!")
+
+    -- Українські абревіатури (перетворюють :й -> Q, :ц -> W)
+    vim.cmd("cnoreabbrev <buffer> й Q")
+    vim.cmd("cnoreabbrev <buffer> й! Q!")
+    vim.cmd("cnoreabbrev <buffer> ц W")
+    vim.cmd("cnoreabbrev <buffer> ц! W!")   
 
     -- Локальні клавіші для редактора (Normal Mode)
     local editor_keymaps = {
@@ -269,7 +284,7 @@ function M.render_status()
     local modified = vim.bo[M.buf].modified and " [+] " or " "
     
     return string.format(
-        " РЕДАКТУВАННЯ %d/%d (%s)%s │ Натисніть i для вводу тексту │ :w - зберегти │ :q - вийти",
+        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s %s │ Натисніть i для вводу тексту │ :w - зберегти │ :q - вийти",
         state.index(), state.count(), state.field_name(), modified
     )
 end
