@@ -45,8 +45,29 @@ vim.api.nvim_create_autocmd("InsertLeave", {
     end,
 })
 
+
+-- -----------------------------------------------------------------------------
+-- Управління розкладкою клавіатури (xkb-switch + dwmblocks)
+-- -----------------------------------------------------------------------------
 local saved_layout = "us"
 
+local function save_current_layout()
+    local handle = io.popen("xkb-switch -p")
+    if handle then
+        local current = handle:read("*l")
+        handle:close()
+        if current and current ~= "" then
+            saved_layout = current
+        end
+    end
+end
+
+local function force_switch_to_us()
+    vim.fn.system("xkb-switch -s us")
+    vim.fn.jobstart({ "pkill", "-RTMIN+1", "dwmblocks" })
+end
+
+-- Повертаємо розкладку, яка була до виходу з Insert
 vim.api.nvim_create_autocmd("InsertEnter", {
     group = group,
     callback = function()
@@ -57,33 +78,34 @@ vim.api.nvim_create_autocmd("InsertEnter", {
     end,
 })
 
+-- При виході з Insert зберігаємо мову та перемикаємо на 'us'
 vim.api.nvim_create_autocmd("InsertLeave", {
     group = group,
     callback = function()
-        local handle = io.popen("xkb-switch -p")
-        if handle then
-            local current = handle:read("*l")
-            handle:close()
-            if current and current ~= "" then
-                saved_layout = current
-            end
-        end
-
-        if saved_layout ~= "us" then
-            vim.fn.jobstart({ "xkb-switch", "-s", "us" })
-            vim.fn.jobstart({ "pkill", "-RTMIN+1", "dwmblocks" })
-        end
+        save_current_layout()
+        force_switch_to_us()
     end,
 })
 
--- кольори орфографії для будь-яких тем та терміналів
+-- При переході в режим команд (:, /, ?) ПРИМУСОВО скидаємо на 'us' (без збереження, щоб не перезаписати saved_layout)
+vim.api.nvim_create_autocmd("CmdlineEnter", {
+    group = group,
+    callback = function()
+        force_switch_to_us()
+    end,
+})
+
+
+-- -----------------------------------------------------------------------------
+-- Кольори орфографії для будь-яких тем та терміналів
+-- -----------------------------------------------------------------------------
 vim.api.nvim_create_autocmd({ "ColorScheme", "VimEnter" }, {
+    group = group,
     pattern = "*",
     callback = function()
         vim.api.nvim_set_hl(0, "SpellBad", { 
-            fg = "Red",     -- колір тексту
-            -- bg = "#928374",     -- фон
-            ctermbg = "Red",    -- червоний фон у простому терміналі
+            fg = "Red",     
+            ctermbg = "Red",    
             ctermfg = "White", 
             bold = true 
         })
@@ -91,8 +113,9 @@ vim.api.nvim_create_autocmd({ "ColorScheme", "VimEnter" }, {
 })
 
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "orgagenda", }, 
-  callback = function()
-    vim.opt_local.colorcolumn = ""
-  end,
+    group = group,
+    pattern = { "orgagenda" }, 
+    callback = function()
+        vim.opt_local.colorcolumn = ""
+    end,
 })

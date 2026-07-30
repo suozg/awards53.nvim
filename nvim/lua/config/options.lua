@@ -1,22 +1,25 @@
--- ====================="cmp.utils.feedkeys".run(144)
--- ========================================================
--- 0. СИСТЕМНІ НАЛАШТУВАННЯ ТА ШЛЯХИ
 -- =============================================================================
-vim.g.python3_host_prog = '~/venv/bin/python3'
-vim.env.PATH = "~/venv/bin:" .. vim.env.PATH
+-- СИСТЕМНІ НАЛАШТУВАННЯ ТА ШЛЯХИ
+-- =============================================================================
+vim.g.python3_host_prog = vim.fn.expand('~/venv/bin/python3')
+vim.env.PATH = vim.fn.expand("~/venv/bin:") .. vim.env.PATH
 vim.opt.runtimepath:append(vim.fn.expand("~/.local/share/nvim/site"))
 
--- Вимикаємо непотрібні провайдери для прискорення завантаження
+-- Вимикаємо непотрібні провайдери
 vim.g.loaded_ruby_provider = 0
 vim.g.loaded_perl_provider = 0
 vim.g.loaded_node_provider = 0
 
--- Робимо так, щоб Neovim розумів українську розкладку в Normal/Visual режимах
+-- Вхід у режим команд через 'ж' або 'Ж'
+vim.keymap.set('n', 'ж', ':')
+vim.keymap.set('n', 'Ж', ':')
+
+-- Neovim підтримка української розкладки в Normal/Visual
 vim.opt.langmap = [[ЙQ,ЦW,УE,КR,ЕT,НY,ГU,ШI,ЩO,ЗP,Х{,Ї},ФA,ІS,ВD,АF,ПG,РH,ОJ,ЛK,ДL,Ж\:,Є\",ЯZ,ЧX,СC,МV,ИB,ТN,ЬM,Б\<,Ю\>,йq,цw,уe,кr,еt,нy,гu,шi,щo,зp,х[,ї],фa,іs,вd,аf,пg,рh,оj,лk,дl,ж\;,є\',яz,чx,сc,мv,иb,тn,ьm,б\,,ю.]]
 
 
 -- =============================================================================
--- 2. OPTIONS (Налаштування)
+-- OPTIONS
 -- =============================================================================
 local opt = vim.opt
 opt.number = true
