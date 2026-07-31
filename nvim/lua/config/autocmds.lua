@@ -31,20 +31,6 @@ vim.api.nvim_create_autocmd("BufWritePost", {
     end,
 })
 
-vim.api.nvim_create_autocmd("InsertEnter", {
-    group = group,
-    callback = function()
-        vim.api.nvim_set_hl(0, "StatusLine", { link = "StatusLineInsert" })
-    end,
-})
-
-vim.api.nvim_create_autocmd("InsertLeave", {
-    group = group,
-    callback = function()
-        vim.api.nvim_set_hl(0, "StatusLine", { link = "StatusLineNormal" })
-    end,
-})
-
 
 -- -----------------------------------------------------------------------------
 -- Управління розкладкою клавіатури (xkb-switch + dwmblocks)
@@ -63,7 +49,7 @@ local function save_current_layout()
 end
 
 local function force_switch_to_us()
-    vim.fn.system("xkb-switch -s us")
+    vim.fn.jobstart("xkb-switch -s us")
     vim.fn.jobstart({ "pkill", "-RTMIN+1", "dwmblocks" })
 end
 
@@ -87,7 +73,7 @@ vim.api.nvim_create_autocmd("InsertLeave", {
     end,
 })
 
--- При переході в режим команд (:, /, ?) ПРИМУСОВО скидаємо на 'us' (без збереження, щоб не перезаписати saved_layout)
+-- При переході в режим команд (:, /, ?) скидаємо на 'us' 
 vim.api.nvim_create_autocmd("CmdlineEnter", {
     group = group,
     callback = function()

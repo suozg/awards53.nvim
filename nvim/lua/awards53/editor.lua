@@ -278,16 +278,57 @@ function M.save_core(silent_write)
     end
 end
 
--- Рендеринг статус-рядка для верхнього робочого вікна
+
+-- Отримання першого рядка з 1-го поля картки (обрізано до 20 символів)
+local function get_prev_field_preview()
+    local record = state.current_record()
+    if not record then return "" end
+
+    local field_idx = state.field_index()
+    -- Якщо зараз відкрито Поле 1 — підказка не потрібна
+    if not field_idx or field_idx <= 1 then
+        return ""
+    end
+
+    local headers = state.headers_list()
+    local first_field_name = headers[1]
+    if not first_field_name then return "" end
+
+    -- Завжди беремо дані з першого поля картки
+    local first_field_data = record[first_field_name]
+
+    if first_field_data and #first_field_data > 0 then
+        local first_line = vim.trim(first_field_data[1] or "")
+        if first_line ~= "" then
+            -- Обрізаємо до 30 символів
+            if vim.fn.strchars(first_line) > 20 then
+                first_line = vim.fn.strcharpart(first_line, 0, 30) .. ""
+            end
+
+            return string.format(" 👈: %s", first_line)
+        end
+    end
+
+    return ""
+end
+
+-- Рендеринг статус-рядка для верхнього робочого вікна редактора
 function M.render_status()
     if not M.buf or not vim.api.nvim_buf_is_valid(M.buf) then return "" end
     local modified = vim.bo[M.buf].modified and " [+] " or " "
     
+    -- Отримуємо підказку першого рядка попереднього поля
+    local prev_hint = get_prev_field_preview()
+    if prev_hint ~= "" then
+        prev_hint = " │" .. prev_hint
+    end
+
     return string.format(
-        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s %s │ Натисніть i для вводу тексту │ :w - зберегти │ :q - вийти",
-        state.index(), state.count(), state.field_name(), modified
+        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s %s%s │ :w - зберегти │ :q - вийти",
+        state.index(), state.count(), state.field_name(), modified, prev_hint
     )
 end
+
 
 -- РЕНДЕРИНГ ДЛЯ ПАНЕЛІ ПІДКАЗОК (відображає статистику)
 function M.render_help_status()

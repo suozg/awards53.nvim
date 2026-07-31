@@ -32,10 +32,10 @@ end
 -- Прив'язуємо функцію до опції статусбара
 vim.opt.statusline = "%!v:lua.statusline()"
 
--- Функція, яка динамічно змінює колір стандартного StatusLine залежно від режиму
+-- =============================================================================
+-- Динамічна зміна кольору StatusLine залежно від режиму
+-- =============================================================================
 local function update_statusline_color()
-    -- Використовуємо defer_fn замість schedule, щоб дати командам розкладки 
-    -- повністю завершити свою роботу (даємо мікрозатримку у 10 мілісекунд)
     vim.defer_fn(function()
         local mode = vim.fn.mode()
         
@@ -56,12 +56,10 @@ local function update_statusline_color()
             vim.api.nvim_set_hl(0, "StatusLine", { bg = "#3c3836", fg = "#ebdbb2" })
         end
         
-        -- Примусово перемальовуємо статусбар після зміни кольору
         vim.cmd("redrawstatus")
-    end, 10) -- затримка 10мс
+    end, 10)
 end
 
--- Створюємо автокоманди
 local status_group = vim.api.nvim_create_augroup("StatusLineModeColors", { clear = true })
 
 vim.api.nvim_create_autocmd({ 
@@ -75,5 +73,5 @@ vim.api.nvim_create_autocmd({
     callback = update_statusline_color,
 })
 
+-- Первинний виклик при завантаженні
 update_statusline_color()
-
