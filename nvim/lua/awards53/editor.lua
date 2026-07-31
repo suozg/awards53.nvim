@@ -207,7 +207,18 @@ function M.open()
             vim.keymap.set("n", uk, handler, key_opts) 
         end
     end
-
+    -- повертати курсор у верхній буфер, якщо з будь-якої причини фокус потрапить у підказки
+    vim.api.nvim_create_autocmd("WinEnter", {
+        group = group,
+        callback = function()
+            if M.help_win and vim.api.nvim_win_is_valid(M.help_win) and vim.api.nvim_get_current_win() == M.help_win then
+                -- Якщо фокус опинився у вікні підказок, повертаємо його в основне вікно редактора
+                if M.win and vim.api.nvim_win_is_valid(M.win) then
+                    vim.api.nvim_set_current_win(M.win)
+                end
+            end
+        end,
+    })
     -- Очищення при закритті вікна редактора
     vim.api.nvim_create_autocmd("WinClosed", {
         group = group,
@@ -329,7 +340,6 @@ function M.render_status()
     )
 end
 
-
 -- РЕНДЕРИНГ ДЛЯ ПАНЕЛІ ПІДКАЗОК (відображає статистику)
 function M.render_help_status()
     local stats = get_text_stats()
@@ -342,8 +352,14 @@ function M.render_help_status()
     
     -- Права частина: Маркер панелі
     local right = " * "
+    
+    -- Безпечно отримуємо ширину вікна підказок
+    local width = 80 -- Замовчуване значення, якщо вікно недоступне
+    if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then
+        width = vim.api.nvim_win_get_width(M.help_win)
+    end
+
     -- Розраховуємо пробіли для вирівнювання праворуч
-    local width = vim.api.nvim_win_get_width(M.help_win or 0)
     local padding = width - vim.fn.strdisplaywidth(left) - vim.fn.strdisplaywidth(right)
     if padding < 1 then padding = 1 end
 
