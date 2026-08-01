@@ -13,21 +13,29 @@ return {
         end,
     },
 
-    -- -- {
-    --     "akinsho/bufferline.nvim",
-    --         version = "*",
-    --         dependencies = { "nvim-tree/nvim-web-devicons" }, -- Іконки для вкладок
-    --         config = function()
-    --     end,
-    -- },
-    -- {
-    --     "echasnovski/mini.nvim",
-    --     version = false,
-    --     event = { "BufReadPost", "BufNewFile" },
-    --     config = function()
-    --         require("mini.cursorword").setup()
-    --     end,
-    -- },
+    {
+        "echasnovski/mini.nvim",
+        version = false,
+        event = { "BufReadPost", "BufNewFile" },
+        config = function()
+          require("mini.cursorword").setup()
+          
+          -- Додаємо верхню панель відкритих файлів (буферів)
+          require("mini.tabline").setup({
+            show_icons = true,
+            tabpage_section = "left",
+          })
+
+          -- Перемикання між відкритими файлами за допомогою Tab / Shift+Tab
+          vim.keymap.set("n", "]b", "<cmd>bnext<CR>", { desc = "Наступний буфер", silent = true })
+          vim.keymap.set("n", "[b>", "<cmd>bprevious<CR>", { desc = "Попередній буфер", silent = true })
+          -- Також можна дублювати через Leader
+          vim.keymap.set("n", "<leader>bn", "<cmd>bnext<CR>", { desc = "Наступний буфер", silent = true })
+          vim.keymap.set("n", "<leader>bp", "<cmd>bprevious<CR>", { desc = "Попередній буфер", silent = true })
+          -- Закрити поточний файл (буфер)
+          vim.keymap.set("n", "<leader>bd", "<cmd>bdelete<CR>", { desc = "Закрити буфер", silent = true })
+        end,
+    },
 
     {
         "nvimdev/dashboard-nvim",

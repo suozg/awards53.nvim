@@ -1,4 +1,4 @@
-local M = {}
+local M = {} 
 
 local parser = require("awards53.parser")
 local state = require("awards53.state")
@@ -8,7 +8,7 @@ local utils = require("awards53.utils")
 local cfg = require("awards53")
 
 -- Пошук меж блоку (повертає точні індекси рядків)
-local function find_awards_block(lines)
+function M.find_awards_block(lines)
     local start_line, finish_line
     local inside = false
 
@@ -35,9 +35,8 @@ end
 
 -- Допоміжна функція для отримання лише рядків нашого блоку
 local function get_awards_block_lines(buf_lines)
-    local first, last = find_awards_block(buf_lines)
+    local first, last = M.find_awards_block(buf_lines)
     if not first then return nil end
-    -- Зрізаємо таблицю рядків від першої до останньої лінії включно (без заголовка секції)
     return vim.list_slice(buf_lines, first + 1, last)
 end
 
@@ -45,17 +44,15 @@ local function open_cards()
     local current_buf = vim.api.nvim_get_current_buf()
     local target_buf = current_buf
 
-    -- Перевіряємо, чи є в поточному буфері потрібний розділ
     local lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
-    local first, _ = find_awards_block(lines)
+    local first, _ = M.find_awards_block(lines)
 
-    -- Розумний пошук: якщо ми в буфері документів (де секції немає), шукаємо відкриту базу
     if not first then
         local found_base = false
         for _, buf in ipairs(vim.api.nvim_list_bufs()) do
             if vim.api.nvim_buf_is_valid(buf) then
                 local blines = vim.api.nvim_buf_get_lines(buf, 0, 100, false)
-                local b_first, _ = find_awards_block(blines)
+                local b_first, _ = M.find_awards_block(blines)
                 if b_first then
                     target_buf = buf
                     lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -66,7 +63,6 @@ local function open_cards()
             end
         end
         
-        -- Якщо базу взагалі не знайдено ніде, дозволяємо ініціалізацію в поточному буфері
         if not found_base then
             first = nil
         end
@@ -75,7 +71,6 @@ local function open_cards()
     state.set_source_buffer(target_buf)
     state.set_source_win(vim.api.nvim_get_current_win())
 
-    -- Ініціалізація порожнього файлу або відсутньої секції
     if not first or (#lines == 1 and vim.trim(lines[1]) == "") then
         lines = { "*" .. " " .. cfg.config.section, "", "" }
         
@@ -90,7 +85,6 @@ local function open_cards()
     local block = get_awards_block_lines(lines) or {}
     local data = parser.parse(block)
 
-    -- Гарантуємо структуру, щоб уникнути падіння UI
     if #data.records == 0 then table.insert(data.records, { ["1"] = { "" } }) end
     if #data.headers == 0 then table.insert(data.headers, "1") end
 
@@ -103,7 +97,7 @@ function M.sync_org_buffer()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local first, last = find_awards_block(lines)
+    local first, last = M.find_awards_block(lines)
 
     if not first then
         utils.error("Розділ " .. cfg.config.section .. " не знайдено")
@@ -111,7 +105,6 @@ function M.sync_org_buffer()
     end
     local out = serializer.build(state.data())
 
-    -- Тимчасово розблоковуємо буфер перед записом ліній
     local old_modifiable = vim.bo[buf].modifiable
     vim.bo[buf].modifiable = true
     
@@ -131,7 +124,6 @@ local function save_cards()
     end
 end
 
--- 
 function M.setup()
     local commands = {
         Awards53 = open_cards,
@@ -140,11 +132,9 @@ function M.setup()
         end,
     }
     
-    -- реєстрація команд через цикл
     for cmd_name, callback in pairs(commands) do
         vim.api.nvim_create_user_command(cmd_name, callback, {})
     end
 end
-
 
 return M

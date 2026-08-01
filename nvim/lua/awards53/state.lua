@@ -469,7 +469,22 @@ end
 function M.set(data)
     data = data or {} 
     M.records, M.headers = data.records or {}, data.headers or {} 
-    M.current, M.field, M.current_mode, M.is_changed = 1, 1, "NORMAL", false 
+
+    -- Зберігаємо поточний індекс, якщо він у межах масиву записів
+    local saved_current = M.current or 1
+    if saved_current > #M.records then
+        saved_current = math.max(1, #M.records)
+    end
+
+    local saved_field = M.field or 1
+    if saved_field > #M.headers then
+        saved_field = math.max(1, #M.headers)
+    end
+
+    M.current = saved_current
+    M.field = saved_field
+    M.current_mode = "NORMAL"
+    M.is_changed = false 
     M.renumber() 
 end
 

@@ -27,6 +27,40 @@ local function render_body()
     return lines 
 end
 
+-- Оновлення назви буфера картки для mini.tabline (із зірочкою *, якщо є зміни)
+local function update_ui_buffer_title()
+    if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then return end
+
+    local src_buf = state.get_source_buffer()
+    local is_modified = state.is_changed
+
+    if src_buf and vim.api.nvim_buf_is_valid(src_buf) and vim.bo[src_buf].modified then
+        is_modified = true
+    end
+
+    local title = is_modified and "* Awards53" or "Awards53"
+    pcall(vim.api.nvim_buf_set_name, M.body_buf, title)
+end
+
+function M.render_status()
+    local src_buf = state.get_source_buffer()
+    local is_modified = state.is_changed
+    
+    if src_buf and vim.api.nvim_buf_is_valid(src_buf) and vim.bo[src_buf].modified then
+        is_modified = true
+    end
+
+    local mod_flag = is_modified and " [+] " or " "
+    local rec_idx = state.index()
+    local rec_cnt = state.count()
+    local f_name = state.field_name()
+
+    return string.format(
+        " КАРТКА %d/%d%s│ Поле: %s │ <i/ENTER> редагувати │ <Tab> навігація",
+        rec_idx, rec_cnt, mod_flag, f_name
+    )
+end
+
 function M.redraw() 
     if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then return end 
 
@@ -37,12 +71,15 @@ function M.redraw()
     utils.highlight_rnokpp_in_buf(M.body_buf) 
     apply_field_highlighting(M.body_buf) 
 
-    -- Примусове утримання курсора на першому рядку (запобігає блуканню по буферу)
     if M.body_win and vim.api.nvim_win_is_valid(M.body_win) then
-        vim.api.nvim_win_set_cursor(M.body_win, { 1, 0 })
+        if vim.api.nvim_get_current_win() == M.body_win then
+            vim.api.nvim_win_set_cursor(M.body_win, { 1, 0 })
+        end
     end
-end
 
+    update_ui_buffer_title()
+    vim.cmd("redrawstatus!")
+end
 
 local function bind_keys() 
     local cfg = require("awards53") 
@@ -58,23 +95,11 @@ local function bind_keys()
         ["s"]   = { function() if vim.v.count > 0 then return state.goto_record(vim.v.count) end end, true }, 
         ["S"]   = { function() state.sort_by(cfg.config.default_sort) state.first() end, true }, 
         
-        ["j"] = { function() return state.next_field() end, true },
-        ["k"] = { function() return state.prev_field() end, true },
+        ["j"]   = { function() return state.next_field() end, true },
+        ["k"]   = { function() return state.prev_field() end, true },
 
-        -- ["j"]   = { function() 
-        --     state.field = state.field_index() < #state.headers_list() and state.field_index() + 1 or 1 
-        --     state.last_field = state.field 
-        -- end, true }, 
-        
-        -- ["k"]   = { function() 
-        --     state.field = state.field_index() > 1 and state.field_index() - 1 or #state.headers_list() 
-        --     state.last_field = state.field 
-        -- end, true }, 
-        
-        -- Зсув тексту полів у поточній картці (Shift+j / k) 
-        ["J"] = { function() return state.move_field_content_down() end, true }, 
-        ["K"] = { function() return state.move_field_content_up() end, true }, 
-         -- Зсув тексту полів у картці по всьому файлу (Leader+j / k) 
+        ["J"]   = { function() return state.move_field_content_down() end, true }, 
+        ["K"]   = { function() return state.move_field_content_up() end, true }, 
         ["<leader>j"] = { function() return state.move_field_globally_down() end, true }, 
         ["<leader>k"] = { function() return state.move_field_globally_up() end, true }, 
         
@@ -82,11 +107,11 @@ local function bind_keys()
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false }, 
         
         ["F"]   = { function() if state.new_field() then M.redraw() utils.info("Додано нове поле №" .. state.field_name()) end end, false }, 
-        ["F-"]   = { function() if state.new_field("-") then M.redraw() utils.info("Додано нове поле №" .. state.field_name() .. "із '-'") end end, false }, 
+        ["F-"]  = { function() if state.new_field("-") then M.redraw() utils.info("Додано нове поле №" .. state.field_name() .. " із '-'") end end, false }, 
         ["B"]   = { function() 
             if state.delete_field() then 
                 pcall(state.sync_to_disk) 
-                M.redraw() utils.info("Поле успешно видалено") 
+                M.redraw() utils.info("Поле успішно видалено") 
             else utils.error("Не вдалося видалити поле") end 
         end, false }, 
 
@@ -103,7 +128,7 @@ local function bind_keys()
             vim.ui.input({ prompt = "Пошук " .. cfg.config.default_sort .. ": " }, function(t) if t and t ~= "" then state.find(t, 1) M.redraw() end end) 
         end, false }, 
         
-        ["g/"]   = { function() 
+        ["g/"]  = { function() 
             vim.ui.select(state.headers_list(), { prompt = "🔍 Шукати в полі:" }, function(f) 
                 if f then vim.ui.input({ prompt = "Пошук (" .. f .. "): " }, function(t) if t and t ~= "" then state.find(t, 1, f) M.redraw() end end) end 
             end) 
@@ -111,12 +136,10 @@ local function bind_keys()
 
         ["n"]   = { function() return state.find_next() end, true }, 
         ["N"]   = { function() return state.find_next(-1) end, true }, 
-        -- схлопування пустих полів по всьому файлу 
-        ["0"] = { function() return state.collapse_empty_fields_globally() end, true }, 
-        -- Екшени з actions.lua (сортування офіцерів залишаємо в UI, це загальна дія на базу)
+        ["0"]   = { function() return state.collapse_empty_fields_globally() end, true }, 
         ["O"]   = { function() actions.sort_officers_first() state.first() end, true }, 
 
-        ["?"] = { function() require("awards53.help").open() end, false  }, 
+        ["?"]   = { function() require("awards53.help").open() end, false  }, 
     }
 
     local opts = { buffer = M.body_buf, silent = true } 
@@ -130,70 +153,119 @@ local function bind_keys()
         end 
         vim.keymap.set("n", lhs, handler, opts) 
         
-        -- Використовуємо єдину функцію з утиліт
         local uk = utils.translate_key(lhs) 
         if uk ~= lhs then 
             vim.keymap.set("n", uk, handler, opts) 
         end 
     end
-
 end
 
----------------------------------------------------------
 function M.open() 
     vim.cmd("highlight default link Awards53ActiveField CursorLine") 
-    M.body_buf = vim.api.nvim_create_buf(false, true) 
 
-    vim.bo[M.body_buf].buftype = "nofile" 
-    vim.bo[M.body_buf].bufhidden = "wipe" 
-    vim.bo[M.body_buf].swapfile = false 
+    -- Створюємо перелічувальний буфер карток (buflisted = true)
+    if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then
+        M.body_buf = vim.api.nvim_create_buf(true, false) 
+        
+        vim.bo[M.body_buf].buftype = "nofile" 
+        vim.bo[M.body_buf].bufhidden = "hide" -- Не знищувати при перемиканні буферів!
+        vim.bo[M.body_buf].swapfile = false 
+        
+        update_ui_buffer_title()
 
-    -- БЛОКУВАННЯ РУХУ КУРСОРА НА РІВНІ БУФЕРА
-    local keys_to_disable = { 
-        "j", "k", "h", "l", 
-        "<Up>", "<Down>", "<Left>", "<Right>", 
-        "w", "b", "e", "ge", 
-        "0", "$", "^", "gg", "G" 
-    }
-    for _, key in ipairs(keys_to_disable) do
-        vim.keymap.set("n", key, "<Nop>", { buffer = M.body_buf, noremap = true, silent = true })
-    end
+        local keys_to_disable = { 
+            "<Up>", "<Down>", "<Left>", "<Right>", 
+            "w", "b", "ge", "$", "^", "gg", "G" 
+        }
+        for _, key in ipairs(keys_to_disable) do
+            vim.keymap.set("n", key, "<Nop>", { buffer = M.body_buf, noremap = true, silent = true })
+        end
 
-    vim.cmd("tabnew") 
-    M.body_win = vim.api.nvim_get_current_win() 
-    vim.api.nvim_win_set_buf(M.body_win, M.body_buf) 
+        bind_keys()
+        
+        -- Власна команда закриття картки для перехоплення незбережених правок у ВСІХ буферах
+        vim.api.nvim_buf_create_user_command(M.body_buf, "Q", function(opts)
+            local editor = require("awards53.editor")
+            -- Якщо вихід примусовий (:q!), скидаємо прапори модифікації у всіх фонових буферах
+            if opts.bang then
+                for _, b in ipairs(vim.api.nvim_list_bufs()) do
+                    if vim.api.nvim_buf_is_valid(b) then
+                        vim.bo[b].modified = false
+                    end
+                end
+            end
 
-    vim.api.nvim_create_autocmd("BufWipeout", { 
-        buffer = M.body_buf, 
-        callback = function() 
-            if state.is_changed then 
-                local org_buf = state.get_source_buffer() 
-                if org_buf and vim.api.nvim_buf_is_valid(org_buf) then 
-                    local success = pcall(state.sync_to_disk) 
-                    if success then 
-                        vim.bo[org_buf].modified = true 
-                    else 
-                        utils.warn("Не вдалося синхронізувати зміни.") 
+            if M.body_win and vim.api.nvim_win_is_valid(M.body_win) then
+                pcall(vim.api.nvim_win_close, M.body_win, true)
+            end
+        end, { bang = true })
+
+        vim.cmd("cnoreabbrev <buffer> q Q")
+        vim.cmd("cnoreabbrev <buffer> q! Q!")
+        vim.cmd("cnoreabbrev <buffer> й Q")
+        vim.cmd("cnoreabbrev <buffer> й! Q!")
+
+        -- Автоматичне оновлення стан-бази, якщо користувач відредагував .org файл напряму
+        local src_buf = state.get_source_buffer()
+        if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
+            local group = vim.api.nvim_create_augroup("Awards53SourceSync", { clear = true })
+            
+            vim.api.nvim_create_autocmd({ "BufWritePost", "TextChanged" }, {
+                buffer = src_buf,
+                group = group,
+                callback = function()
+                    local lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
+                    local parser = require("awards53.parser")
+                    local commands = require("awards53.commands")
+                    
+                    local first, last = commands.find_awards_block(lines)
+                    if first then
+                        local block = vim.list_slice(lines, first + 1, last)
+                        local data = parser.parse(block)
+                        -- Зберігаємо позицію перед оновленням
+                        local curr_rec = state.index()
+                        local curr_fld = state.field_index()
+                        state.set(data)
+                        -- Відновлюємо позицію
+                        state.goto_record(curr_rec)
+                        state.field = curr_fld
+                        if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
+                            M.redraw()
+                        end
+                    end
+                end,
+            })
+        end         
+
+        vim.api.nvim_create_autocmd("BufWipeout", { 
+            buffer = M.body_buf, 
+            callback = function() 
+                if state.is_changed then 
+                    local org_buf = state.get_source_buffer() 
+                    if org_buf and vim.api.nvim_buf_is_valid(org_buf) then 
+                        pcall(state.sync_to_disk) 
                     end 
                 end 
-            end 
-            M.body_buf, M.body_win = nil, nil 
-        end, 
-    }) 
+                M.body_buf, M.body_win = nil, nil 
+            end, 
+        }) 
+    end
 
-    vim.api.nvim_buf_set_name(M.body_buf, "Awards53") 
-    vim.wo[M.body_win].statusline = "%!v:lua.require'awards53.status'.render()" 
-
-    local wo = vim.wo[M.body_win] 
+    -- Відкриваємо буфер у поточному вікні
+    M.body_win = vim.api.nvim_get_current_win() 
+    vim.api.nvim_win_set_buf(M.body_win, M.body_buf) 
+    vim.wo[M.body_win].statusline = "%!v:lua.require'awards53.status'.render()"
+    local wo = vim.wo[M.body_win]
+    
     wo.number, wo.relativenumber, wo.signcolumn, wo.colorcolumn = false, false, "no", "" 
 
-    bind_keys() 
-    vim.keymap.set("n", ":w<CR>", ":q<CR>", { buffer = M.body_buf, silent = true }) 
     M.redraw() 
 end
 
 function M.focus() 
-    if M.body_win and vim.api.nvim_win_is_valid(M.body_win) then vim.api.nvim_set_current_win(M.body_win) end 
+    if M.body_win and vim.api.nvim_win_is_valid(M.body_win) then 
+        vim.api.nvim_set_current_win(M.body_win) 
+    end 
 end 
 
 function M.close_editor() 

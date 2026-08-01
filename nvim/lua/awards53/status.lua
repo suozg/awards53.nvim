@@ -3,18 +3,43 @@ local M = {}
 local state = require("awards53.state")
 
 function M.render()
+    -- 1. Отримуємо ім'я .org файла
+    local file_name = ""
+    local buf = state.get_source_buffer()
+    if buf and vim.api.nvim_buf_is_valid(buf) then
+        local full_path = vim.api.nvim_buf_get_name(buf)
+        if full_path ~= "" then
+            file_name = vim.fn.fnamemodify(full_path, ":t") .. " │ "
+        end
+    end
 
-    -- Перевіряємо, чи були зміни. Якщо так, додаємо "[+]", інакше — порожній рядок.
-    local modified = state.is_changed and " [+]" or ""
+    -- 2. Динамічно перевіряємо незбережені зміни в усіх буферах
+    local is_modified = false
 
+    if state.is_changed then
+        is_modified = true
+    end
+
+    if buf and vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].modified then
+        is_modified = true
+    end
+
+    local editor_ok, editor = pcall(require, "awards53.editor")
+    if editor_ok and editor.buf and vim.api.nvim_buf_is_valid(editor.buf) and vim.bo[editor.buf].modified then
+        is_modified = true
+    end
+
+    -- Позначка змін: [+] або порожньо
+    local mod_flag = is_modified and " [+] " or " "
+
+    -- 3. Формуємо повний рядок (повертаємо ваші підказки та написи)
     return string.format(
-        " Картка: %d/%d%s   %s   рух: h◄ l► [[◀◀ ]]▶▶ N   операції: S O A dd✗ y⎘ p󰆑   вихід: q⏻ ",
+        "%%#StatusLine# %sКартка: %d/%d%s│ рух: h◄ l► [[◀◀ ]]▶▶ N  │ оп: S O A dd✗ y⎘ p󰆑  │ вихід: q⏻",
+        file_name,
         state.index(),
         state.count(),
-        modified,
-        state.mode()
+        mod_flag
     )
-
 end
 
 return M

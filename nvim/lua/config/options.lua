@@ -5,10 +5,10 @@ vim.g.python3_host_prog = vim.fn.expand('~/venv/bin/python3')
 vim.env.PATH = vim.fn.expand("~/venv/bin:") .. vim.env.PATH
 vim.opt.runtimepath:append(vim.fn.expand("~/.local/share/nvim/site"))
 
--- Вимикаємо непотрібні провайдери
 vim.g.loaded_ruby_provider = 0
 vim.g.loaded_perl_provider = 0
 vim.g.loaded_node_provider = 0
+vim.g.netrw_banner = 0
 
 -- Neovim підтримка української розкладки в Normal/Visual
 vim.opt.langmap = [[ЙQ,ЦW,УE,КR,ЕT,НY,ГU,ШI,ЩO,ЗP,Х{,Ї},ФA,ІS,ВD,АF,ПG,РH,ОJ,ЛK,ДL,Ж\:,Є\",ЯZ,ЧX,СC,МV,ИB,ТN,ЬM,Б\<,Ю\>,йq,цw,уe,кr,еt,нy,гu,шi,щo,зp,х[,ї],фa,іs,вd,аf,пg,рh,оj,лk,дl,ж\;,є\',яz,чx,сc,мv,иb,тn,ьm,б\,,ю.]]
@@ -42,5 +42,26 @@ opt.foldenable = true
 opt.updatetime = 300
 opt.conceallevel = 2
 opt.concealcursor = 'nc'
-vim.g.netrw_banner = 0
 opt.whichwrap:append("<,>,[,],h,l")
+
+-- бекап
+opt.undofile = true
+opt.undodir = vim.fn.expand("~/.local/state/nvim/undo")
+opt.timeoutlen = 500
+opt.ttimeoutlen = 0
+opt.backup = false
+opt.writebackup = false
+opt.swapfile = false
+-- Автоматичне очищення файлів undo, старіших за 90 днів
+vim.api.nvim_create_autocmd("VimEnter", {
+  group = vim.api.nvim_create_augroup("CleanUndoHistory", { clear = true }),
+  callback = function()
+    local undo_dir = vim.fn.expand("~/.local/state/nvim/undo")
+    if vim.fn.isdirectory(undo_dir) == 1 then
+      -- Команда виконується асинхронно, щоб не уповільнювати запуск Neovim
+      vim.fn.jobstart({
+        "find", undo_dir, "-type", "f", "-atime", "+90", "-delete"
+      })
+    end
+  end,
+})
