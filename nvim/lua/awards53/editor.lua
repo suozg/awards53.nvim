@@ -30,7 +30,8 @@ local function get_text_stats()
 
     for _, line in ipairs(lines) do
         char_count = char_count + vim.str_utfindex(line)
-        for _ in string.gmatch(line, "[%w_А-Яа-яЄєІіЇїҐґ']+") do
+        -- Шукаємо будь-які блоки без пробілів
+        for _ in string.gmatch(line, "%S+") do
             word_count = word_count + 1
         end
     end
@@ -41,35 +42,45 @@ end
 local function setup_help_window()
     if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then return end
 
-    if not (M.help_buf and vim.api.nvim_buf_is_valid(M.help_buf)) then
-        M.help_buf = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_buf_set_lines(M.help_buf, 0, -1, false, help_lines)
-        local h_bo = vim.bo[M.help_buf]
-        h_bo.buftype, h_bo.bufhidden, h_bo.swapfile, h_bo.modifiable = "nofile", "hide", false, false
-    end
+    vim.schedule(function()
+        -- Повторна перевірка всередині schedule на випадок, якщо вікно вже створилося
+        if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then return end
 
-    vim.cmd("botright split")
-    M.help_win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(M.help_win, M.help_buf)
-    vim.api.nvim_win_set_height(M.help_win, #help_lines)
+        if not (M.help_buf and vim.api.nvim_buf_is_valid(M.help_buf)) then
+            M.help_buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_lines(M.help_buf, 0, -1, false, help_lines)
+            local h_bo = vim.bo[M.help_buf]
+            h_bo.buftype, h_bo.bufhidden, h_bo.swapfile, h_bo.modifiable = "nofile", "hide", false, false
+        end
 
-    local h_wo = vim.wo[M.help_win]
-    h_wo.number, h_wo.relativenumber, h_wo.signcolumn, h_wo.colorcolumn, h_wo.spell = false, false, "no", "", false
-    h_wo.winfixheight = true
-    h_wo.statusline = "%!v:lua.require'awards53.editor'.render_help_status()"
-    h_wo.winhighlight = "Normal:Awards53Help,NormalNC:Awards53Help,SignColumn:Awards53Help"
+        -- Безпечне створення вікна через pcall
+        local ok, win = pcall(vim.api.nvim_open_win, M.help_buf, false, {
+            split = "below",
+            height = #help_lines,
+            win = -1,
+        })
 
-    vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "#3C3838" })
-    vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "#3C3838", bold = false })
+        -- Якщо створення вікна не вдалося (повернуло false) або ID некоректне
+        if not ok or not win or not vim.api.nvim_win_is_valid(win) then
+            return
+        end
 
-    local ns = vim.api.nvim_create_namespace("awards53_editor_help")
-    for i = 0, #help_lines - 1 do
-        vim.api.nvim_buf_add_highlight(M.help_buf, ns, "Awards53EditorHelpText", i, 0, -1)
-    end
+        M.help_win = win
 
-    if M.win and vim.api.nvim_win_is_valid(M.win) then
-        vim.api.nvim_set_current_win(M.win)
-    end
+        local h_wo = vim.wo[M.help_win]
+        h_wo.number, h_wo.relativenumber, h_wo.signcolumn, h_wo.colorcolumn, h_wo.spell = false, false, "no", "", false
+        h_wo.winfixheight = true
+        h_wo.statusline = "%!v:lua.require'awards53.editor'.render_help_status()"
+        h_wo.winhighlight = "Normal:Awards53Help,NormalNC:Awards53Help,SignColumn:Awards53Help"
+
+        vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "#3C3838" })
+        vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "#3C3838", bold = false })
+
+        local ns = vim.api.nvim_create_namespace("awards53_editor_help")
+        for i = 0, #help_lines - 1 do
+            vim.api.nvim_buf_add_highlight(M.help_buf, ns, "Awards53EditorHelpText", i, 0, -1)
+        end
+    end)
 end
 
 local function close_help_window()
