@@ -135,6 +135,7 @@ function M.setup()
     for cmd_name, callback in pairs(commands) do
         vim.api.nvim_create_user_command(cmd_name, callback, {})
     end
+
 end
 
 return M

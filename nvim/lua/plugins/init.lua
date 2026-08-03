@@ -21,12 +21,6 @@ return {
         "godlygeek/tabular",
         event = { "BufReadPost", "BufNewFile" },
     },
-    -- {
-    --     "dhruvasagar/vim-table-mode",
-    --     cmd = { "TableModeToggle", "TableModeEnable" }, -- завантажиться тільки коли викличете команду
-    --     -- або альтернативно: event = { "BufReadPost", "BufNewFile" }
-    -- },
-    
     -- UI
     { import = "plugins.ui" },
 

@@ -3,7 +3,6 @@ local M = {}
 local context = require("awards53.documents.context")
 
 function M.open()
-
     local mode = context.mode()
     local awards_data = context.awards_data()
     local picker_mode
@@ -13,6 +12,7 @@ function M.open()
     else
         picker_mode = "documents"
     end
+
     require("awards53.documents.terminal").pick(picker_mode, function(path)
         if not path then
             return
@@ -25,46 +25,66 @@ function M.open()
         end
 
         -------------------------------------------------------
-        -- Awards53 (Генерація таблиці + Паралельний Org з часом)
+        -- Awards53 (Генерація таблиці + Паралельний Org + Індивідуальні нагородні листи)
         -------------------------------------------------------
         if mode == "awards" then
             local output_dir = vim.fn.getcwd()
-            
-            -- Формуємо часову мітку (наприклад: 20260720_1940)
             local timestamp = os.date("%Y%m%d_%H%M")
             
-            -- Базове ім'я файлу на основі шаблону та часу (напр., templateId_20260720_1940)
-            local base_name = string.format("%s_%s", tpl.id, timestamp)
-            
-            local odt_output_name = base_name .. ".odt"
-            local org_output_name = base_name .. ".org"
+            -- Ім'я для головного табличного ODT
+            local odt_output_name = string.format("%s_%s.odt", tpl.id, timestamp)
+            -- Ім'я для паралельного Org (лист)
+            local org_output_name = string.format("%s_%s_letter.org", tpl.id, timestamp)
 
-            -- 1. Спершу створюємо паралельний текстовий .org з потрібним ім'ням
-            -- Передаємо org_output_name як третій аргумент
+            -- 1. Створюємо паралельний текстовий .org
             require("awards53.documents.converter").create_parallel_org(awards_data, output_dir, org_output_name)
 
-            -- 2. Потім штатно запускаємо збірку ODT з таблицею
+            -- 2. Створюємо загальний ODT з таблицею
             require("awards53.documents.converter").compile_to_odt({
                 template = tpl,
                 awards_data = awards_data,
                 output_dir = output_dir,
                 output_name = odt_output_name,
             })
+
+            -- 3. Генерація окремого Нагородного листа для КОЖНОЇ картки (для "orden")
+            local created_award_sheets = {}
+            if tpl.id == "orden" then
+                local sheet_tpl_path = vim.fn.stdpath("config") .. "/templates/templates53/awards/orden/orden_sheet.ott"
+                
+                if vim.fn.filereadable(sheet_tpl_path) == 1 then
+                    created_award_sheets = require("awards53.documents.converter").generate_award_sheets({
+                        ott_path = sheet_tpl_path,
+                        awards_data = awards_data,
+                        output_dir = output_dir,
+                    })
+                else
+                    vim.notify("Увага: Шаблон нагородного листа не знайдено: " .. sheet_tpl_path, vim.log.levels.WARN)
+                end
+            end
             
-            -- Повертаємо гарне сповіщення на екран
+            -- Гарне сповіщення про створені документи
             vim.defer_fn(function()
                 vim.cmd("redraw")
-                vim.api.nvim_echo({
-                    { "Документи успішно створено у: ", "Identifier" },
-           { odt_output_name, "String" },
-                    { " та ", "Normal" },
-                    { org_output_name, "String" }
-                }, true, {})
+                local msg = {
+                    { "Документи успішно створено:\n", "Identifier" },
+                    { "• Зведений ODT: " .. odt_output_name .. "\n", "String" },
+                    { "• Супровідний Org: " .. org_output_name .. "\n", "Normal" },
+                }
+                
+                if #created_award_sheets > 0 then
+                    table.insert(msg, { string.format("• Нагородні листи (%d шт.):\n", #created_award_sheets), "Special" })
+                    for _, sheet_name in ipairs(created_award_sheets) do
+                        table.insert(msg, { "   - " .. sheet_name .. "\n", "Directory" })
+                    end
+                end
+                
+                vim.api.nvim_echo(msg, true, {})
             end, 150)
             return
         end
-        
-        -- -------------------------------------------------------
+
+        -------------------------------------------------------
         -- Існуючий Org
         -------------------------------------------------------
         if mode == "org" then
@@ -89,18 +109,7 @@ function M.open()
         end
 
         vim.notify("Невідомий режим Documents53", vim.log.levels.ERROR)
-
     end)
 end
-
-vim.api.nvim_create_user_command(
-    "Document53Convert",
-    function()
-        require("awards53.documents.converter").convert_current()
-    end,
-    {
-        desc = "Конвертувати поточний Org-mode документ у ODT",
-    }
-)
 
 return M

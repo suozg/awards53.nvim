@@ -1,5 +1,7 @@
 local M = {}
 
+local utils = require("awards53.utils")
+
 -- Функція для очищення пустих рядків з початку та кінця масиву
 local function trim_field_lines(lines)
     if not lines or #lines == 0 then return {} end
@@ -64,6 +66,9 @@ function M.parse(lines, separator)
     end
 
     for _, line in ipairs(lines) do
+        -- Використовуємо централізовану функцію очищення з utils.lua
+        line = utils.clean_invisible_chars(line)
+
         local trimmed = vim.trim(line)
 
         if trimmed == cfg.config.record_separator then

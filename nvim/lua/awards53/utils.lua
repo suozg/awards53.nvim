@@ -19,19 +19,28 @@ function M.translate_key(str)
     return result 
 end
 
+function M.clean_invisible_chars(text)
+    if not text or type(text) ~= "string" then return text end
 
-local ns_id = vim.api.nvim_create_namespace("awards53_rnokpp")
+    text = text:gsub("\xC2\xA0", " ")
+    text = text:gsub("\xEF\xBB\xBF", "")
+    text = text:gsub("\xE2\x80\x8E", "")
+    text = text:gsub("\xE2\x80\x8F", "")
+    text = text:gsub("\xE2\x80\x8B", "")
+    text = text:gsub("\xE2\x80\x8C", "")
+    text = text:gsub("\xE2\x80\x8D", "")
+
+    return text
+end
 
 function M.highlight_rnokpp_in_buf(buf)
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
 
+    local ns_id = cfg.ns_rnokpp or vim.api.nvim_create_namespace("awards53_rnokpp")
     vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
     
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local weights = { -1, 5, 7, 9, 4, 6, 10, 5, 7 }
-
-    -- Стиль: білий текст на червоному фоні (можна bg змінити на nil, якщо треба ТІЛЬКИ червоний текст)
-    vim.api.nvim_set_hl(0, "Awards53RnokppError", { fg = "#FFFFFF", bg = "#FF0000", bold = true })
 
     for line_idx, line in ipairs(lines) do
         local start_pos = 1
@@ -68,13 +77,11 @@ function M.highlight_rnokpp_in_buf(buf)
 end
 
 function M.is_section(line)
-    -- Чітко шукаємо рядок, що починається з зірочки та має назву секції (AWARDS53)
     local section = vim.pesc(cfg.config.section)
     return line:match("^%*%s+" .. section .. "%s*$") ~= nil
 end
 
 function M.is_heading(line)
-    -- Будь-який інший заголовок Org-mode (наприклад, "* Наступний розділ" або "** Підрозділ")
     if line:match("^%*+%s+") then
         return not M.is_section(line)
     end

@@ -34,7 +34,7 @@ function M.render()
 
     -- 3. Формуємо повний рядок (повертаємо ваші підказки та написи)
     return string.format(
-        "%%#StatusLine# %sКартка: %d/%d%s│ рух: h◄ l► [[◀◀ ]]▶▶ N  │ оп: S O A dd✗ y⎘ p󰆑  │ вихід: q⏻",
+        "%%#StatusLine#Файл: %sКартка: %d/%d%s │ Переміщення: h◄ l► [[◀◀ ]]▶▶ N │ Операції: S O⇄ A 0 dp✥ dd✗ y⎘ p󰆑 :w🖪 :q⏻ | Довідка: ? ",
         file_name,
         state.index(),
         state.count(),

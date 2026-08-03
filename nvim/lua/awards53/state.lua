@@ -18,7 +18,8 @@ M.undo = nil
 M.source_buffer = nil 
 M.source_win = nil 
 M.last_search = nil 
-M.last_search_field = nil 
+M.last_search_field = nil
+M.opened_editors = {}
 
 -- Швидкі inline-геттери/сеттери
 function M.set_source_win(win) M.source_win = win end 
@@ -366,6 +367,9 @@ function M.paste_after()
     local text = vim.fn.getreg("+")
     if not text or vim.trim(text) == "" then return false end 
 
+    -- Чистимо невидимі символи в скопійованому тексті
+    text = utils.clean_invisible_chars(text)
+    
     local parsed = parser.parse(vim.split(text, "\n", { trimempty = false }), cfg.config.separator) 
     if not parsed.records or #parsed.records == 0 then return false end 
 

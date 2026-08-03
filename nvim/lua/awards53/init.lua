@@ -19,14 +19,33 @@ function M.setup(opts)
         opts or {}
     )
 
-    -- Реєстрація базових команд
+    -- 1. Реєстрація глобальних namespace для підсвічування (оптимізація)
+    M.ns_help = vim.api.nvim_create_namespace("awards53_editor_help")
+    M.ns_fields = vim.api.nvim_create_namespace("awards53_fields")
+    M.ns_rnokpp = vim.api.nvim_create_namespace("awards53_rnokpp")
+
+    -- 2. Централізоване визначення кольорів та груп підсвічування
+    vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "#3C3838" })
+    vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "#3C3838", bold = false })
+    vim.api.nvim_set_hl(0, "Awards53RnokppError", { fg = "#FFFFFF", bg = "#FF0000", bold = true })
+    vim.cmd("highlight default link Awards53ActiveField CursorLine")
+
+    -- 3. Реєстрація базових команд плагіна (Awards53, Awards53abbr)[cite: 9]
     require("awards53.commands").setup()
     
+    -- 4. Централізована реєстрація головної глобальної команди для меню Documents53
     vim.api.nvim_create_user_command("Documents53", function()
-        require("awards53.documents").open() -- шлях до модуля документів
-    end, {})
+        local status, doc_init = pcall(require, "awards53.documents.init")
+        if status and doc_init and doc_init.open then
+            doc_init.open()
+        else
+            require("awards53.documents.converter").convert_current()
+        end
+    end, {
+        desc = "Головне меню / робота з Documents53",
+    })
 
-    -- Автовизначення типу файлу при відкритті
+    -- 5. Автовизначення типу файлу при відкритті (BufReadPost)[cite: 14]
     vim.api.nvim_create_autocmd("BufReadPost", {
         callback = function(args)
             vim.schedule(function()
@@ -34,19 +53,23 @@ function M.setup(opts)
                     return
                 end
 
-                -- Зчитуємо перші кілька рядків для перевірки наявності маркерів
                 local lines = vim.api.nvim_buf_get_lines(args.buf, 0, 15, false)
                 if #lines == 0 then return end
 
                 ----------------------------------------------------------------
-                -- 1. Перевірка на базу даних Awards53
+                -- А. Перевірка на базу даних Awards53
                 ----------------------------------------------------------------
                 if lines[1] and utils.is_section(lines[1]) then
                     vim.api.nvim_set_current_buf(args.buf)
                     vim.cmd("Awards53")
                     
-                    -- Після успішного відкриття карток беремо перше ліпше поле 
-                    -- файлу як дефолтне для швидкого пошуку (клавіша /) та сортування (клавіша S)
+                    -- Реєструємо команду конвертації ЛОКАЛЬНО тільки для цього буфера
+                    vim.api.nvim_buf_create_user_command(args.buf, "Document53Convert", function()
+                        require("awards53.documents.converter").convert_current()
+                    end, {
+                        desc = "Універсальна конвертація даних Awards53",
+                    })
+
                     local headers = state.headers_list()
                     if #headers > 0 and M.config.default_sort == "" then
                         M.config.default_sort = headers[1]
@@ -55,7 +78,7 @@ function M.setup(opts)
                 end
 
                 ----------------------------------------------------------------
-                -- 2. Перевірка на документ Documents53 (Org-mode)
+                -- Б. Перевірка на документ Documents53 (Org-mode)[cite: 23]
                 ----------------------------------------------------------------
                 local is_doc53 = false
                 for _, line in ipairs(lines) do
@@ -66,17 +89,17 @@ function M.setup(opts)
                 end
 
                 if is_doc53 then
-                    -- Вмикаємо захист службових полів (приховування та відновлення при спробі видалити)
+                    -- Вмикаємо захист службових полів[cite: 26]
                     pcall(function()
                         require("awards53.documents.editor").protect_tech_lines(args.buf)
                     end)
                     
-                    -- Підключаємо аббревіатури
+                    -- Підключаємо локальні аббревіатури для буфера[cite: 6, 26]
                     pcall(function()
                         require("awards53.abbreviations").register_buffer_abbreviations(args.buf)
                     end)
 
-                    -- Реєструємо команду швидкої конвертації локально для цього буфера
+                    -- Реєструємо команду конвертації ЛОКАЛЬНО тільки для цього буфера
                     vim.api.nvim_buf_create_user_command(args.buf, "Document53Convert", function()
                         require("awards53.documents.converter").convert_current()
                     end, {
