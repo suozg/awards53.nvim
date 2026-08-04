@@ -3,6 +3,7 @@ local M = {}
 local state = require("awards53.state")
 local utils = require("awards53.utils")
 local actions = require("awards53.actions")
+local search_module = require("awards53.searchtxt")
 
 M.help_buf = nil -- Буфер підказок
 M.help_win = nil -- Вікно підказок внизу
@@ -293,6 +294,7 @@ function M.open()
         ["X"] = { function() M.save_core(buf) actions.format_rnokpp_in_all_cards() M.refresh_editor_buffer(buf) end, nil },
         ["e"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
         ["E"] = { function() M.save_core(buf) state.flatten_field_globally() M.refresh_editor_buffer(buf) end, nil },
+        ["s"] = { function() search_module.run_search() end, "Шукати через searchdocs та вставити" }, 
     }
 
     local key_opts = { buffer = buf, silent = true, noremap = true }
