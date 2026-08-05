@@ -114,11 +114,15 @@ vim.keymap.set('n', '<C-h>', function()
     end
 end, { desc = "У нижнє вікно LF" })
 
-
 -- =============================================================================
 -- Таблиці
 -- =============================================================================
 vim.api.nvim_create_user_command('MakeTable', function(opts)
+    if not vim.bo.modifiable then
+        print("Цей буфер захищено від змін!")
+        return
+    end
+
     local r1, r2 = opts.line1, opts.line2
     vim.cmd(string.format([[%d,%dg/^\s*$/d]], r1, r2))
     vim.cmd(string.format([[%d,%ds/^/| /]], r1, r2))

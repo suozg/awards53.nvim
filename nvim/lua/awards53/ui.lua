@@ -15,16 +15,23 @@ local cfg = require("awards53")
 local NS_ID = cfg.ns_fields or vim.api.nvim_create_namespace("awards53_fields") 
 local syntax_group = "Awards53ActiveField" 
 
--- Реєструємо групу підсвічування глобально на рівні завантаження модуля, 
--- щоб синтаксис не видавав помилку E28
 vim.cmd("highlight default link Awards53ActiveField CursorLine")
 
 local function apply_field_highlighting(buf) 
     vim.api.nvim_buf_clear_namespace(buf, NS_ID, 0, -1) 
-    vim.api.nvim_buf_call(buf, function() 
-        vim.cmd("syntax clear " .. syntax_group) 
-        vim.cmd([[syntax match ]] .. syntax_group .. [[ /^\s\s.*/]]) 
-    end) 
+    
+    local line_count = vim.api.nvim_buf_line_count(buf)
+    for i = 0, line_count - 1 do
+        local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1]
+        if line and line:match("^%s%s.*") then
+            vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
+                end_row = i,
+                end_col = #line,
+                hl_group = syntax_group,
+                hl_eol = true,
+            })
+        end
+    end
 end
 
 local function render_body() 
