@@ -7,6 +7,7 @@ local editor = require("awards53.editor")
 local utils = require("awards53.utils") 
 local actions = require("awards53.actions") 
 local move_karta = require("awards53.move_karta")
+local mappings = require("awards53.mappings")
 
 M.body_buf = nil 
 M.body_win = nil 
@@ -19,7 +20,6 @@ vim.cmd("highlight default link Awards53ActiveField CursorLine")
 
 local function apply_field_highlighting(buf) 
     vim.api.nvim_buf_clear_namespace(buf, NS_ID, 0, -1) 
-    
     local line_count = vim.api.nvim_buf_line_count(buf)
     for i = 0, line_count - 1 do
         local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1]
@@ -55,25 +55,6 @@ local function update_ui_buffer_title()
     pcall(vim.api.nvim_buf_set_name, M.body_buf, title)
 end
 
-function M.render_status()
-    local src_buf = state.get_source_buffer()
-    local is_modified = state.is_changed
-    
-    if src_buf and vim.api.nvim_buf_is_valid(src_buf) and vim.bo[src_buf].modified then
-        is_modified = true
-    end
-
-    local mod_flag = is_modified and " [+] " or " "
-    local rec_idx = state.index()
-    local rec_cnt = state.count()
-    local f_name = state.field_name()
-
-    return string.format(
-        " КАРТКА %d/%d%s│ Поле: %s │ <i/ENTER> редагувати │ <Tab> навігація",
-        rec_idx, rec_cnt, mod_flag, f_name
-    )
-end
-
 function M.redraw() 
     if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then return end 
 
@@ -98,16 +79,12 @@ function M.redraw()
 
     if is_editing_card_buffer and saved_cursor then
         local line_count = vim.api.nvim_buf_line_count(M.body_buf)
-        if saved_cursor[1] > line_count then 
-            saved_cursor[1] = line_count 
-        end
+        if saved_cursor[1] > line_count then saved_cursor[1] = line_count end
         pcall(vim.api.nvim_win_set_cursor, M.body_win, saved_cursor)
     end
 
     update_ui_buffer_title()
-
     vim.bo[M.body_buf].modified = false
-
     vim.cmd("redrawstatus!")
 end
 
@@ -122,7 +99,7 @@ local function bind_keys()
         ["<H>"] = { function() state.jump(5) end, true }, 
         ["<L>"] = { function() state.jump(-5) end, true }, 
         
-        ["s"]   = { function() if vim.v.count > 0 then return state.goto_record(vim.v.count) end end, true }, 
+        ["g"]   = { function() if vim.v.count > 0 then return state.goto_record(vim.v.count) end end, true }, 
         ["S"]   = { function() state.sort_by(cfg.config.default_sort) state.first() end, true }, 
         
         ["j"]   = { function() return state.next_field() end, true },
@@ -132,16 +109,21 @@ local function bind_keys()
         ["K"]   = { function() return state.move_field_content_up() end, true }, 
         ["<leader>j"] = { function() return state.move_field_globally_down() end, true }, 
         ["<leader>k"] = { function() return state.move_field_globally_up() end, true }, 
+        
+        -- Закладки
+        ["m"]   = { function() state.toggle_bookmark() end, true },
+        ["]m"]  = { function() return state.next_bookmark() end, true },
+        ["[m"]  = { function() return state.prev_bookmark() end, true },
+
         ["i"]   = { function() 
-            local editor = require("awards53.editor")
-            if editor.win and vim.api.nvim_win_is_valid(editor.win) then
-                vim.api.nvim_set_current_win(editor.win)
+            local editor_mod = require("awards53.editor")
+            if editor_mod.win and vim.api.nvim_win_is_valid(editor_mod.win) then
+                vim.api.nvim_set_current_win(editor_mod.win)
                 return
             end
-
             state.set_mode("INSERT") 
             M.redraw() 
-            editor.open() 
+            editor_mod.open() 
         end, false },
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false }, 
         
@@ -162,7 +144,7 @@ local function bind_keys()
         ["yy"]  = { function() state.copy_current() utils.info("Картку скопійовано") end, false }, 
         ["p"]   = { function() return state.paste_after() end, true }, 
         ["u"]   = { function() return state.undo_last() end, true }, 
-        ["dp"] = { function() move_karta.move_to_fork() end, true },
+        ["dp"]  = { function() move_karta.move_to_fork() end, true },
         ["/"]   = { function() 
             vim.ui.input({ prompt = "Пошук " .. cfg.config.default_sort .. ": " }, function(t) if t and t ~= "" then state.find(t, 1) M.redraw() end end) 
         end, false }, 
@@ -178,25 +160,11 @@ local function bind_keys()
         ["0"]   = { function() return state.collapse_empty_fields_globally() end, true }, 
         ["O"]   = { function() actions.sort_officers_first() state.first() end, true }, 
 
-        ["?"]   = { function() require("awards53.help").open() end, false  }, 
+        ["?"]   = { function() require("awards53.help").open() end, false }, 
     }
 
-    local opts = { buffer = M.body_buf, silent = true } 
-    for lhs, action_data in pairs(keymaps) do 
-        local func, need_redraw = action_data[1], action_data[2] 
-        local handler = function() 
-            local res = func() 
-            if need_redraw and res ~= false then 
-                M.redraw() 
-            end 
-        end 
-        vim.keymap.set("n", lhs, handler, opts) 
-        
-        local uk = utils.translate_key(lhs) 
-        if uk ~= lhs then 
-            vim.keymap.set("n", uk, handler, opts) 
-        end 
-    end
+    -- Викликаємо централізоване мапування через новий модуль mappings.lua
+    mappings.bind_buffer_keymaps(M.body_buf, keymaps, "n")
 end
 
 function M.open() 
@@ -221,7 +189,6 @@ function M.open()
 
         local function save_card_action()
             local src_buf = state.get_source_buffer()
-
             if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
                 pcall(state.sync_to_disk)
 
@@ -255,17 +222,12 @@ function M.open()
 
             if opts.bang then
                 for _, b in ipairs(vim.api.nvim_list_bufs()) do
-                    if vim.api.nvim_buf_is_valid(b) then
-                        vim.bo[b].modified = false
-                    end
+                    if vim.api.nvim_buf_is_valid(b) then vim.bo[b].modified = false end
                 end
             end
 
-            local target_win = M.body_win
-            local target_buf = M.body_buf
-
-            M.body_win = nil
-            M.body_buf = nil
+            local target_win, target_buf = M.body_win, M.body_buf
+            M.body_win, M.body_buf = nil, nil
 
             if target_win and vim.api.nvim_win_is_valid(target_win) then
                 pcall(vim.api.nvim_win_close, target_win, true)
@@ -288,24 +250,22 @@ function M.open()
         local src_buf = state.get_source_buffer()
         if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
             local group = vim.api.nvim_create_augroup("Awards53SourceSync", { clear = true })
-            
             vim.api.nvim_create_autocmd({ "BufWritePost" }, {
                 buffer = src_buf,
                 group = group,
                 callback = function()
                     local lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-                    local parser = require("awards53.parser")
+                    local parser_mod = require("awards53.parser")
                     local commands = require("awards53.commands")
                     
                     local first, last = commands.find_awards_block(lines)
                     if first then
                         local block = vim.list_slice(lines, first + 1, last)
-                        local data = parser.parse(block)
+                        local data = parser_mod.parse(block)
                         
                         local curr_rec = state.index()
                         local curr_fld = state.field_index()
                         state.set(data)
-                        
                         state.goto_record(curr_rec)
                         state.field = curr_fld
 
@@ -338,9 +298,7 @@ function M.open()
     vim.api.nvim_win_set_buf(M.body_win, M.body_buf) 
     vim.wo[M.body_win].statusline = "%!v:lua.require'awards53.status'.render()"
     local wo = vim.wo[M.body_win]
-    
     wo.number, wo.relativenumber, wo.signcolumn, wo.colorcolumn = false, false, "no", "" 
-
     M.redraw() 
 end
 

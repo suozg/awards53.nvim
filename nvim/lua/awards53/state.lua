@@ -20,6 +20,7 @@ M.source_win = nil
 M.last_search = nil 
 M.last_search_field = nil
 M.opened_editors = {}
+M.bookmarks = {} -- Таблиця для закладок карток
 
 -- Швидкі inline-геттери/сеттери
 function M.set_source_win(win) M.source_win = win end 
@@ -36,6 +37,59 @@ function M.headers_list() return M.headers end
 function M.field_index() return M.field end 
 function M.field_name() return M.headers[M.field] end 
 
+-- Закладки
+function M.toggle_bookmark()
+    local idx = M.current
+    if M.bookmarks[idx] then
+        M.bookmarks[idx] = nil
+        utils.info("Закладку знято з картки № " .. idx)
+    else
+        M.bookmarks[idx] = true
+        utils.info("Встановлено закладку на картку № " .. idx)
+    end
+    M.is_changed = true
+    return true
+end
+
+function M.has_bookmark(idx)
+    idx = idx or M.current
+    return M.bookmarks[idx] == true
+end
+
+function M.next_bookmark()
+    local n = #M.records
+    if n == 0 then return false end
+    local start = M.current
+    for _ = 1, n do
+        start = start + 1
+        if start > n then start = 1 end
+        if M.bookmarks[start] then
+            M.current = start
+            M.field = M.last_field
+            return true
+        end
+    end
+    utils.info("Закладок не знайдено")
+    return false
+end
+
+function M.prev_bookmark()
+    local n = #M.records
+    if n == 0 then return false end
+    local start = M.current
+    for _ = 1, n do
+        start = start - 1
+        if start < 1 then start = n end
+        if M.bookmarks[start] then
+            M.current = start
+            M.field = M.last_field
+            return true
+        end
+    end
+    utils.info("Закладок не знайдено")
+    return false
+end
+
 -- Оновлення порядкових номерів
 function M.renumber()
     for i, rec in ipairs(M.records) do rec.N = i end 
@@ -48,13 +102,14 @@ function M.snapshot()
         current = M.current,
         field = M.field,
         is_changed = M.is_changed, 
+        bookmarks = vim.deepcopy(M.bookmarks),
     }
 end
 
 function M.undo_last()
     if not M.undo then return false end 
 
-    M.records, M.current, M.field, M.is_changed = M.undo.records, M.undo.current, M.undo.field, M.undo.is_changed 
+    M.records, M.current, M.field, M.is_changed, M.bookmarks = M.undo.records, M.undo.current, M.undo.field, M.undo.is_changed, M.undo.bookmarks
     M.undo = nil 
     M.renumber() 
 
@@ -77,38 +132,27 @@ function M.collapse_empty_fields_globally()
     local max_non_empty_index = 1
     local record_with_max_fields = 1
 
-    -- Крок 1. Спочатку зсуваємо заповнені поля вліво всередині кожної картки окремо
     for r_idx, record in ipairs(M.records) do
         local non_empty_values = {}
-        
         for idx = 1, original_headers_count do
             local key = tostring(idx)
             local val = record[key]
-            
             local has_text = false
             if type(val) == "table" then
                 for _, line in ipairs(val) do
-                    if vim.trim(line) ~= "" then
-                        has_text = true
-                        break
-                    end
+                    if vim.trim(line) ~= "" then has_text = true; break end
                 end
             elseif type(val) == "string" and vim.trim(val) ~= "" then
                 has_text = true
             end
-
-            if has_text then
-                table.insert(non_empty_values, val)
-            end
+            if has_text then table.insert(non_empty_values, val) end
         end
 
-        -- Шукаємо, у якій саме картці найбільше заповнених полів
         if #non_empty_values > max_non_empty_index then
             max_non_empty_index = #non_empty_values
             record_with_max_fields = r_idx
         end
 
-        -- Тимчасово очищуємо хвости в рекорді
         for idx = 1, original_headers_count do
             local key = tostring(idx)
             if idx <= #non_empty_values then
@@ -119,114 +163,25 @@ function M.collapse_empty_fields_globally()
         end
     end
 
-    -- Крок 2. Скорочуємо глобальну структуру (M.headers) до фактичного максимуму заповнених полів
     local new_headers = {}
-    for i = 1, max_non_empty_index do
-        table.insert(new_headers, tostring(i))
-    end
+    for i = 1, max_non_empty_index do table.insert(new_headers, tostring(i)) end
     M.headers = new_headers
 
-    -- Крок 3. Повертаємо порожні поля-заглушки для тих карток, які мають менше полів, ніж лідер
     for _, record in ipairs(M.records) do
         for idx = 1, max_non_empty_index do
             local key = tostring(idx)
-            if record[key] == nil then
-                record[key] = { "" }
-            end
+            if record[key] == nil then record[key] = { "" } end
         end
     end
 
-    -- Крок 4. Коригуємо позицію активного поля
-    if M.field > #M.headers then
-        M.field = #M.headers
-    end
+    if M.field > #M.headers then M.field = #M.headers end
     M.last_field = M.field
     M.is_changed = true
 
-    -- Крок 5. Рахуємо статистику для повідомлення користувачеві
-    local deleted_count = original_headers_count - max_non_empty_index
-    
-    -- Рахуємо мінімальну кількість полів серед усіх карток, щоб знайти порожні "хвости"
-    local min_non_empty_index = max_non_empty_index
-    for _, record in ipairs(M.records) do
-        local current_count = 0
-        for idx = 1, max_non_empty_index do
-            local val = record[tostring(idx)]
-            -- Перевіряємо чи поле реально заповнене
-            local has_text = false
-            if type(val) == "table" then
-                for _, line in ipairs(val) do
-                    if vim.trim(line) ~= "" then has_text = true break end
-                end
-            elseif type(val) == "string" and vim.trim(val) ~= "" then
-                has_text = true
-            end
-            if has_text then current_count = current_count + 1 end
-        end
-        if current_count < min_non_empty_index then
-            min_non_empty_index = current_count
-        end
-    end
-
-    -- Формуємо діапазон видалених глобальних полів
-    local deleted_range = ""
-    if deleted_count == 1 then
-        deleted_range = tostring(original_headers_count)
-    elseif deleted_count > 1 then
-        deleted_range = string.format("%d-%d", max_non_empty_index + 1, original_headers_count)
-    end
-
-    -- Формуємо діапазон порожніх полів, що залишилися внизу інших карток через лідера
-    local left_empty_range = ""
-    if max_non_empty_index > min_non_empty_index then
-        if (max_non_empty_index - min_non_empty_index) == 1 then
-            left_empty_range = tostring(max_non_empty_index)
-        else
-            left_empty_range = string.format("%d-%d", min_non_empty_index + 1, max_non_empty_index)
-        end
-    end
-
-    -- Виводимо інформацію користувачу
-    local deleted_count = original_headers_count - max_non_empty_index
-
-    local deleted_range = deleted_count == 1 and tostring(original_headers_count) 
-        or string.format("%d-%d", max_non_empty_index + 1, original_headers_count)
-
-    local left_empty_range = ""
-    if max_non_empty_index > min_non_empty_index then
-        left_empty_range = (max_non_empty_index - min_non_empty_index) == 1 and tostring(max_non_empty_index)
-            or string.format("%d-%d", min_non_empty_index + 1, max_non_empty_index)
-    end
-
-    if deleted_count > 0 and left_empty_range ~= "" then
-        utils.info(string.format(
-            "Видалено [%s] порожніх полів. Але через Картку №%d (має %d) в інших залишилися порожніми поля [%s].",
-            deleted_range, record_with_max_fields, max_non_empty_index, left_empty_range
-        ))
-    elseif deleted_count > 0 then
-        utils.info(string.format(
-            "Успішно видалено [%s] порожніх полів. Тепер у всіх картках порівну полів (%d).",
-            deleted_range, max_non_empty_index
-        ))
-    elseif left_empty_range ~= "" then
-        utils.info(string.format(
-            "Порожні поля не видалялися. Через Картку №%d (має %d полів) в інших картках порожніють поля [%s].",
-            record_with_max_fields, max_non_empty_index, left_empty_range
-        ))
-    else
-        utils.info(string.format(
-            "Всі %d полів повністю заповнені в усіх картках. Нічого видаляти.",
-            original_headers_count
-        ))
-    end
-
+    utils.info(string.format("Успішно видалено порожні поля. Максимум полів: %d", max_non_empty_index))
     return true
 end
 
-
--- =========================================================================
--- Допоміжна функція для обробки та переформатування тексту поля
--- =========================================================================
 local function process_flat_field(record, key)
     local val = record[key]
     if not val then return nil end
@@ -234,7 +189,6 @@ local function process_flat_field(record, key)
     local combined = type(val) == "table" and table.concat(val, " ") or tostring(val)
     combined = combined:gsub("%s+", " ")
 
-    -- Використовуємо спільну логіку форматування з actions.lua
     local actions = require("awards53.actions")
     local formatted = actions.format_text_core(combined)
 
@@ -245,7 +199,6 @@ local function process_flat_field(record, key)
     end
 end
 
--- Обробка ТІЛЬКИ для поточної картки
 function M.flatten_current_field()
     local record = M.current_record()
     if not record then return false end
@@ -261,7 +214,6 @@ function M.flatten_current_field()
     return true
 end
 
--- Глобальна обробка ДЛЯ ВСІХ КАРТОК
 function M.flatten_field_globally()
     M.snapshot()
     local key = tostring(M.field)
@@ -285,8 +237,6 @@ function M.flatten_field_globally()
     end
 end
 
-
--- Навігація по картках 
 local function adjust_navigation(new_pos)
     if new_pos >= 1 and new_pos <= #M.records then
         M.current = new_pos
@@ -307,7 +257,6 @@ function M.jump(offset)
     adjust_navigation(n)
 end
 
--- Навігація по полях
 function M.next_field()
     if M.field < #M.headers then M.field = M.field + 1; M.last_field = M.field; return true end 
     return false
@@ -318,7 +267,6 @@ function M.prev_field()
     return false
 end
 
--- Пошукова логіка
 function M.find(text, step, field)
     field = field or M.last_search_field or cfg.config.default_sort 
     text, step = utils.normalize(text), step or 1 
@@ -346,7 +294,6 @@ function M.find_next(step)
     return M.last_search and M.find(M.last_search, step or 1, M.last_search_field) or false 
 end
 
--- Копіювання та Вставка (Робота з буфером)
 function M.copy_current()
     local current_rec = M.current_record()
     if not current_rec then return false end 
@@ -367,7 +314,6 @@ function M.paste_after()
     local text = vim.fn.getreg("+")
     if not text or vim.trim(text) == "" then return false end 
 
-    -- Чистимо невидимі символи в скопійованому тексті
     text = utils.clean_invisible_chars(text)
     
     local parsed = parser.parse(vim.split(text, "\n", { trimempty = false }), cfg.config.separator) 
@@ -385,22 +331,14 @@ function M.paste_after()
     return true
 end
 
-
--- =========================================================================
--- ЛОКАЛЬНЕ ПЕРЕМІЩЕННЯ (Тільки в поточній картці)
--- =========================================================================
-
 function M.move_field_content_up()
     local idx = M.field
     if idx <= 1 then return false end 
-
     M.snapshot()
     local record = M.current_record()
     if not record then return false end
 
-    local current_key = tostring(idx)
-    local prev_key = tostring(idx - 1)
-
+    local current_key, prev_key = tostring(idx), tostring(idx - 1)
     record[current_key], record[prev_key] = record[prev_key], record[current_key]
     
     M.field = idx - 1
@@ -412,14 +350,11 @@ end
 function M.move_field_content_down()
     local idx = M.field
     if idx >= #M.headers then return false end 
-
     M.snapshot()
     local record = M.current_record()
     if not record then return false end
 
-    local current_key = tostring(idx)
-    local next_key = tostring(idx + 1)
-
+    local current_key, next_key = tostring(idx), tostring(idx + 1)
     record[current_key], record[next_key] = record[next_key], record[current_key]
     
     M.field = idx + 1
@@ -428,22 +363,14 @@ function M.move_field_content_down()
     return true
 end
 
--- =========================================================================
--- ГЛОБАЛЬНЕ ПЕРЕМІЩЕННЯ (Структурне, для всіх карток разом)
--- =========================================================================
-
 function M.move_field_globally_up()
     local idx = M.field
     if idx <= 1 then return false end 
-
     M.snapshot()
-    local current_key = tostring(idx)
-    local prev_key = tostring(idx - 1)
-
+    local current_key, prev_key = tostring(idx), tostring(idx - 1)
     for _, record in ipairs(M.records) do
         record[current_key], record[prev_key] = record[prev_key], record[current_key]
     end
-    
     M.field = idx - 1
     M.last_field = M.field
     M.is_changed = true
@@ -454,15 +381,11 @@ end
 function M.move_field_globally_down()
     local idx = M.field
     if idx >= #M.headers then return false end 
-
     M.snapshot()
-    local current_key = tostring(idx)
-    local next_key = tostring(idx + 1)
-
+    local current_key, next_key = tostring(idx), tostring(idx + 1)
     for _, record in ipairs(M.records) do
         record[current_key], record[next_key] = record[next_key], record[current_key]
     end
-    
     M.field = idx + 1
     M.last_field = M.field
     M.is_changed = true
@@ -473,17 +396,10 @@ end
 function M.set(data)
     data = data or {} 
     M.records, M.headers = data.records or {}, data.headers or {} 
+    M.bookmarks = data.bookmarks or {}
 
-    -- Зберігаємо поточний індекс, якщо він у межах масиву записів
-    local saved_current = M.current or 1
-    if saved_current > #M.records then
-        saved_current = math.max(1, #M.records)
-    end
-
-    local saved_field = M.field or 1
-    if saved_field > #M.headers then
-        saved_field = math.max(1, #M.headers)
-    end
+    local saved_current = math.max(1, math.min(M.current or 1, #M.records))
+    local saved_field = math.max(1, math.min(M.field or 1, #M.headers))
 
     M.current = saved_current
     M.field = saved_field
@@ -492,64 +408,44 @@ function M.set(data)
     M.renumber() 
 end
 
--- ФУНКЦІЯ СОРТУВАННЯ
 function M.sort_by(field)
     M.snapshot()
-
     local char2nr = vim.fn.char2nr
-    
     local function norm(v)
-        return table.concat(type(v) == "table" and v or {v or ""}, " ")
-            :gsub("%s+", " ")
+        return table.concat(type(v) == "table" and v or {v or ""}, " "):gsub("%s+", " ")
     end
 
     local alphabet = {}
-
-    for i, c in ipairs(vim.fn.split(
-        "АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ", "\\zs")) do
+    for i, c in ipairs(vim.fn.split("АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ", "\\zs")) do
         alphabet[c] = i
     end
 
     local function uk_cmp(a, b)
-        a = vim.fn.toupper(a)
-        b = vim.fn.toupper(b)
-
-        local aa = vim.fn.split(a, "\\zs")
-        local bb = vim.fn.split(b, "\\zs")
-
+        a, b = vim.fn.toupper(a), vim.fn.toupper(b)
+        local aa, bb = vim.fn.split(a, "\\zs"), vim.fn.split(b, "\\zs")
         local n = math.max(#aa, #bb)
-
         for i = 1, n do
-            local ca = aa[i]
-            local cb = bb[i]
-
+            local ca, cb = aa[i], bb[i]
             if ca == nil then return true end
             if cb == nil then return false end
-
             local va = alphabet[ca] or (1000 + char2nr(ca))
             local vb = alphabet[cb] or (1000 + char2nr(cb))
-            if va ~= vb then
-                return va < vb
-            end
+            if va ~= vb then return va < vb end
         end
-
         return false
     end
 
     table.sort(M.records, function(a, b)
         return uk_cmp(norm(a[field]), norm(b[field]))
     end)
-
     M.renumber()
     M.is_changed = true
 end
-
 
 function M.new_record()
     M.snapshot() 
     local rec = {}
     for _, f in ipairs(M.headers) do rec[f] = { "" } end 
-    
     table.insert(M.records, rec) 
     M.renumber() 
     M.current, M.field, M.is_changed = #M.records, 1, true 
@@ -558,7 +454,6 @@ end
 function M.delete_current()
     M.snapshot() 
     if #M.records <= 1 then return false end 
-
     table.remove(M.records, M.current) 
     M.current = math.min(M.current, #M.records) 
     M.field, M.is_changed = 1, true 
@@ -568,11 +463,9 @@ end
 
 function M.new_field(default_value)
     M.snapshot() 
-
     local current_idx = M.field or #M.headers
     local insert_idx = current_idx + 1
     local total_headers = #M.headers
-
     local val = default_value or ""
 
     for _, record in ipairs(M.records) do
@@ -583,7 +476,6 @@ function M.new_field(default_value)
     end
 
     table.insert(M.headers, tostring(total_headers + 1)) 
-
     M.field = insert_idx
     M.last_field, M.is_changed = M.field, true 
     return true
@@ -592,7 +484,6 @@ end
 function M.delete_field()
     if #M.headers <= 1 then return false end 
     M.snapshot() 
-
     local idx, total = M.field, #M.headers 
     for _, record in ipairs(M.records) do
         for i = idx, total - 1 do
