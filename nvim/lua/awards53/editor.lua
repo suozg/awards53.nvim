@@ -11,7 +11,7 @@ M.help_win = nil -- Вікно підказок внизу
 local help_lines = {
     "  R   - Форматувати РНОКПП/ВЧ у поточному полі           |  e   - Склеїти рядки поточного поля в один рядок",
     "  X   - Форматувати РНОКПП/ВЧ у цьому полі ВСІХ КАРТОК   |  E   - Склеїти рядки цього поля у ВСІХ картках файлу",
-    "  :w  - Зберегти зміни    │   :q  - Зберегти та вийти    │  :q! - Вийти без збереження",
+    "  f   - Шукати слово в каталозі ~/STATISTIKA             │  a   - Шукати прізвище в базі нагород awards",
 }
 
 -- -----------------------------------------------------------------------------
@@ -28,7 +28,8 @@ local function get_text_stats(buf)
     local char_count = 0
 
     for _, line in ipairs(lines) do
-        char_count = char_count + vim.str_utfindex(line)
+        -- Використовуємо vim.fn.strchars для коректного підрахунку Unicode-символів (включно з українськими літерами)
+        char_count = char_count + vim.fn.strchars(line)
         for _ in string.gmatch(line, "%S+") do
             word_count = word_count + 1
         end
@@ -36,6 +37,7 @@ local function get_text_stats(buf)
 
     return { lines = line_count, words = word_count, chars = char_count }
 end
+
 
 local function setup_help_window()
     if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then return end
@@ -295,6 +297,8 @@ function M.open()
         ["e"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
         ["E"] = { function() M.save_core(buf) state.flatten_field_globally() M.refresh_editor_buffer(buf) end, nil },
         ["f"] = { function() search_module.run_search() end, "Шукати через searchdocs та вставити" }, 
+        ["a"] = { function() search_module.run_sql_search() end, "Пошук по SQLCipher базі нагород" },
+        ["?"] = { function() require("awards53.help").open() end, false }, 
     }
 
     local key_opts = { buffer = buf, silent = true, noremap = true }
@@ -326,7 +330,7 @@ function M.open()
 
     vim.api.nvim_create_autocmd("BufWipeout", {
         buffer = buf,
-        group = group,
+group = group,
         callback = function()
             close_help_window()
             state.opened_editors[key] = nil
@@ -429,13 +433,17 @@ function M.render_status()
     if prev_hint ~= "" then prev_hint = " │" .. prev_hint end
 
     return string.format(
-        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s%s%s │ :w - зберегти │ :q - вийти",
+        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s%s%s │ :w - зберегти │ :q - зберегти та вийти, або :q! - вийти без збереження ",
         card_idx, state.count(), field, modified, prev_hint
     )
 end
 
 function M.render_help_status()
-    local stats = get_text_stats(M.help_buf)
+    -- Знаходимо буфер активного редактора поля через поточне вікно або збережені редактори
+    local current_buf = vim.api.nvim_get_current_buf()
+    -- Якщо фокус у вікні редактора поля, беремо його, інакше шукаємо серед відкритих
+    local stats = get_text_stats(current_buf)
+    
     local left = string.format(" 📊 Символів: %d  │  Слів: %d  │  Рядків: %d", stats.chars, stats.words, stats.lines)
     local right = " * "
 

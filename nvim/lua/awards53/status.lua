@@ -25,7 +25,7 @@ function M.render()
     local bookmark_flag = state.has_bookmark() and " 🔖[Закладка]" or ""
 
     return string.format(
-        "%%#StatusLine#Файл: %sКартка: %d/%d%s%s │ Переміщення: h◄ l► [[◀◀ ]]▶▶ N │ Операції: S O⇄ A 0 dp✥ dd✗ y⎘ p󰆑 :w🖪 :q⏻ | Довідка: ? ",
+        "%%#StatusLine#Файл: %sКартка: %d/%d%s%s │ Переміщення: h◄ l► [[◀◀ ]]▶▶ #g │ Операції: S O⇄ A 0 dp✥ dd✗ y⎘ p󰆑 :w🖪 :q⏻ | Довідка: ? ",
         file_name,
         state.index(),
         state.count(),
