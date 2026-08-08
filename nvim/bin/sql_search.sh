@@ -35,10 +35,10 @@ PRAGMA cipher_compatibility = 3;
 PRAGMA kdf_iter = 64000;
 
 .mode csv
-.separator " | "
+.separator " "
 
 SELECT 
-    p.id, 
+p.id, 
     p.name, 
     p.inn, 
     p.rank, 
@@ -51,12 +51,8 @@ SELECT
 FROM meed m
 LEFT JOIN personality p ON p.id = m.id_personality
 LEFT JOIN award a ON a.id = m.id_award
-WHERE a.denotation LIKE '%' || '${SEARCH_UPPER}' || '%'
-   OR m.decree LIKE '%' || '${SEARCH_UPPER}' || '%'
-   OR m.number_meed LIKE '%' || '${SEARCH_UPPER}' || '%'
-   OR m.consignment_note LIKE '%' || '${SEARCH_UPPER}' || '%'
-   OR p.name LIKE '%' || '${SEARCH_UPPER}' || '%'
-   OR p.inn LIKE '%' || '${SEARCH_UPPER}' || '%';
+WHERE p.name LIKE '${SEARCH_UPPER}' || '%'
+   OR p.inn LIKE '${SEARCH_UPPER}' || '%';
 EOF
 
 # Очищуємо пароль у пам'яті

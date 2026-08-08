@@ -37,7 +37,7 @@ return {
                 callback = function(event)
                     vim.schedule(function()
                         if vim.api.nvim_win_is_valid(0) then
-                            local help_text ="%#OrgHelpBar#  [oct] Нове | [t] TODO/DONE | [o$] В архів | [oid] Дедлайн | [ois] Розклад"
+                            local help_text ="%#OrgHelpBar#  [oct] Нове | [t] TODO/DONE | [o$] В архів | [oid] Дедлайн | [ois] Розклад | [oaa] Agenda"
                             vim.wo[0].winbar = help_text
                         end
                     end)

@@ -163,10 +163,18 @@ function M.run_search()
     end)
 end
 
+local function set_layout(layout)
+    vim.fn.system({ "xkb-switch", "-s", layout })
+    vim.fn.system({ "pkill", "-RTMIN+1", "dwmblocks" })
+end
+
 function M.run_sql_search()
     vim.ui.input({ prompt = "🔍 Введіть запит для пошуку в БД: " }, function(input)
-        if not input or input == "" then return end
+        if not input or vim.trim(input) == "" then
+            return
+        end
 
+        set_layout("us")
         local db_password = vim.fn.inputsecret("🔑 Введіть пароль бази даних (SQLCipher): ")
         print("")
 

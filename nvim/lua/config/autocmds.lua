@@ -48,8 +48,24 @@ local function save_current_layout()
     end
 end
 
-local function force_switch_to_us()
-    vim.fn.jobstart("xkb-switch -s us")
+-- Універсальна функція для зміни розкладки, оновлення файлу та статусу в dwm
+local function set_layout(layout)
+    vim.fn.jobstart({ "xkb-switch", "-s", layout })
+    
+    -- Виправляємо тернарний оператор на звичайний if-else
+    local display_text
+    if layout == "ua" then
+        display_text = "🌻UA"
+    else
+        display_text = "🗽US"
+    end
+
+    local f = io.open("/tmp/dwm_layout", "w")
+    if f then
+        f:write(display_text)
+        f:close()
+    end
+
     vim.fn.jobstart({ "pkill", "-RTMIN+1", "dwmblocks" })
 end
 
@@ -58,8 +74,7 @@ vim.api.nvim_create_autocmd("InsertEnter", {
     group = group,
     callback = function()
         if saved_layout ~= "" then
-            vim.fn.jobstart({ "xkb-switch", "-s", saved_layout })
-            vim.fn.jobstart({ "pkill", "-RTMIN+1", "dwmblocks" })
+            set_layout(saved_layout)
         end
     end,
 })
@@ -69,7 +84,7 @@ vim.api.nvim_create_autocmd("InsertLeave", {
     group = group,
     callback = function()
         save_current_layout()
-        force_switch_to_us()
+        set_layout("us")
     end,
 })
 
@@ -77,10 +92,9 @@ vim.api.nvim_create_autocmd("InsertLeave", {
 vim.api.nvim_create_autocmd("CmdlineEnter", {
     group = group,
     callback = function()
-        force_switch_to_us()
+        set_layout("us")
     end,
 })
-
 
 -- -----------------------------------------------------------------------------
 -- Кольори орфографії для будь-яких тем та терміналів
