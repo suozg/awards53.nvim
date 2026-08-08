@@ -1,0 +1,17 @@
+#!/bin/sh
+# скрипт для системи vim documents53
+
+template_dir="${1:-$HOME/.config/nvim/templates/templates53}"
+selection="${XDG_RUNTIME_DIR:-/tmp}/doc53-selection"
+
+# Шукаємо файли .org на глибині 2 рівнів, отримуємо шлях до їхніх папок,
+# залишаємо унікальні папки та сортуємо їх для fzf
+# find "$template_dir" -mindepth 2 -maxdepth 2 -type f -name "*.org" \
+# | xargs -I {} dirname "{}" \
+# | sort -u \
+# | fzf > "$selection"
+
+find "$template_dir" -mindepth 2 -maxdepth 2 -type f -name "*.org" \
+| xargs -I {} dirname "{}" \
+| sort -u \
+| fzf --delimiter="/" --with-nth=-1 > "$selection"
