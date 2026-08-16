@@ -28,20 +28,25 @@ function _G.statusline()
     })
 end
 
-
 -- Прив'язуємо функцію до опції статусбара
 vim.opt.statusline = "%!v:lua.statusline()"
 
 -- =============================================================================
--- Динамічна зміна кольору StatusLine залежно від режиму
+-- Динамічна зміна кольору StatusLine залежно від режиму і теми
 -- =============================================================================
 local function update_statusline_color()
     vim.defer_fn(function()
+        -- Визначаємо фон на основі наявності файлу ~/.lightmode
+        local theme_file = vim.fn.expand("~/.lightmode")
         local mode = vim.fn.mode()
-        
         if mode:match("^[nN]") then
-            -- Normal режим (синій DWM)
-            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#005577", fg = "#ffffff", bold = true })
+            if vim.fn.filereadable(theme_file) == 1 then
+                -- Normal режим світла тема (сірий DWM)
+                vim.api.nvim_set_hl(0, "StatusLine", { bg = "#eeeeee", fg = "#444444", bold = true })
+            else
+                -- Normal режим темна тема (синій DWM)
+                vim.api.nvim_set_hl(0, "StatusLine", { bg = "#005577", fg = "#ffffff", bold = true })
+            end
         elseif mode == "i" or mode == "ic" or mode == "ix" then
             -- Insert режим (зелений)
             vim.api.nvim_set_hl(0, "StatusLine", { bg = "#2e7d32", fg = "#ffffff", bold = true })
