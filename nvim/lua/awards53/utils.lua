@@ -45,7 +45,10 @@ function M.highlight_rnokpp_in_buf(buf)
     for line_idx, line in ipairs(lines) do
         local start_pos = 1
         while start_pos <= #line do
-            local init_match, end_match = line:find("%d%d%d%d%d%d%d%d%d%d", start_pos)
+            -- Шукаємо максимальну послідовність цифр (від 6 до 10 штук)
+            -- Шукаємо спочатку 10, потім зменшуємо до 6 через шаблон або перевірку довжини.
+            -- Найпростіше знайти 6 цифр, а далі захопити всі суміжні цифри.
+            local init_match, end_match = line:find("%d%d%d%d%d%d%d?%d?%d?%d?", start_pos)
             if not init_match then break end
 
             local before = line:sub(init_match - 1, init_match - 1)
@@ -53,21 +56,30 @@ function M.highlight_rnokpp_in_buf(buf)
             
             if not before:match("%d") and not after:match("%d") then
                 local match = line:sub(init_match, end_match)
-                local digits = {}
-                for i = 1, 10 do 
-                    table.insert(digits, tonumber(match:sub(i, i))) 
-                end
-
-                local k1 = 0
-                for i = 1, 9 do 
-                    k1 = k1 + (digits[i] * weights[i]) 
-                end
-                local checksum = k1 % 11
-                if checksum == 10 then checksum = 0 end
-
-                if checksum ~= digits[10] then
+                local match_len = #match
+                
+                -- Перевіряємо довжину: якщо від 6 до 9 — це помилка (менше 10)
+                if match_len >= 6 and match_len < 10 then
                     vim.api.nvim_buf_add_highlight(buf, ns_id, "Awards53RnokppError", line_idx - 1, init_match - 1, end_match)
+                elseif match_len == 10 then
+                    -- Стандартна перевірка для 10-значних
+                    local digits = {}
+                    for i = 1, 10 do 
+                        table.insert(digits, tonumber(match:sub(i, i))) 
+                    end
+
+                    local k1 = 0
+                    for i = 1, 9 do 
+                        k1 = k1 + (digits[i] * weights[i]) 
+                    end
+                    local checksum = k1 % 11
+                    if checksum == 10 then checksum = 0 end
+
+                    if checksum ~= digits[10] then
+                        vim.api.nvim_buf_add_highlight(buf, ns_id, "Awards53RnokppError", line_idx - 1, init_match - 1, end_match)
+                    end
                 end
+                
                 start_pos = end_match + 1
             else
                 start_pos = init_match + 1

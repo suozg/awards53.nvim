@@ -1,5 +1,4 @@
 return {
-
     -- FZF
     {
         "junegunn/fzf",
@@ -23,7 +22,6 @@ return {
     },
     -- UI
     { import = "plugins.ui" },
-
     -- Treesitter
     {
         "nvim-treesitter/nvim-treesitter",
@@ -37,13 +35,10 @@ return {
             },
         },
     },
-
     -- Org
     { import = "plugins.orgmode" },
-
     -- LSP
     { import = "plugins.lsp" },
-
     -- Editor plugins
     { import = "plugins.editor" },
 }

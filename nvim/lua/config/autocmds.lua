@@ -96,22 +96,7 @@ vim.api.nvim_create_autocmd("CmdlineEnter", {
     end,
 })
 
--- -----------------------------------------------------------------------------
--- Кольори орфографії для будь-яких тем та терміналів
--- -----------------------------------------------------------------------------
-vim.api.nvim_create_autocmd({ "ColorScheme", "VimEnter" }, {
-    group = group,
-    pattern = "*",
-    callback = function()
-        vim.api.nvim_set_hl(0, "SpellBad", { 
-            fg = "Red",     
-            ctermbg = "Red",    
-            ctermfg = "White", 
-            bold = true 
-        })
-    end,
-})
-
+-- прибирає вертикальну лінію-індикатор довжини рядка для вікон orgagenda
 vim.api.nvim_create_autocmd("FileType", {
     group = group,
     pattern = { "orgagenda" }, 

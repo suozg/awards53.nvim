@@ -9,9 +9,8 @@ M.help_buf = nil -- Буфер підказок
 M.help_win = nil -- Вікно підказок внизу
 
 local help_lines = {
-    "  R   - Форматувати РНОКПП/ВЧ у поточному полі           |  e   - Склеїти рядки поточного поля в один рядок",
-    "  X   - Форматувати РНОКПП/ВЧ у цьому полі ВСІХ КАРТОК   |  E   - Склеїти рядки цього поля у ВСІХ картках файлу",
-    "  f   - Шукати слово в каталозі ~/STATISTIKA             │  a   - Шукати прізвище в базі нагород awards",
+    "  R / X - Форматувати посаду у цьому полі / ПО ВСІХ КАРТКАХ   |  e / Е  - Склеїти рядки поточного поля / у ВСІХ картках",
+    "  f / a - Шукати фразу в ~/STATISTIKA / в базі нагород awards |  p      - Скинути пошуковий пароль ",
 }
 
 -- -----------------------------------------------------------------------------
@@ -28,7 +27,6 @@ local function get_text_stats(buf)
     local char_count = 0
 
     for _, line in ipairs(lines) do
-        -- Використовуємо vim.fn.strchars для коректного підрахунку Unicode-символів (включно з українськими літерами)
         char_count = char_count + vim.fn.strchars(line)
         for _ in string.gmatch(line, "%S+") do
             word_count = word_count + 1
@@ -296,7 +294,8 @@ function M.open()
         ["X"] = { function() M.save_core(buf) actions.format_rnokpp_in_all_cards() M.refresh_editor_buffer(buf) end, nil },
         ["e"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
         ["E"] = { function() M.save_core(buf) state.flatten_field_globally() M.refresh_editor_buffer(buf) end, nil },
-        ["f"] = { function() search_module.run_search() end, "Шукати через searchdocs та вставити" }, 
+        ["f"] = { function() search_module.process_all_rnokpp() end, "Пошук в ~/STATISTIKA/shtat" }, 
+        ["p"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 
         ["a"] = { function() search_module.run_sql_search() end, "Пошук по SQLCipher базі нагород" },
         ["?"] = { function() require("awards53.help").open() end, false }, 
     }

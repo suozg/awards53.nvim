@@ -25,8 +25,8 @@ function M.setup(opts)
     M.ns_rnokpp = vim.api.nvim_create_namespace("awards53_rnokpp")
 
     -- 2. Централізоване визначення кольорів та груп підсвічування
-    vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "#3C3838" })
-    vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "#3C3838", bold = false })
+    vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "NONE" })
+    vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "NONE", bold = false })
     vim.api.nvim_set_hl(0, "Awards53RnokppError", { fg = "#FFFFFF", bg = "#FF0000", bold = true })
     vim.cmd("highlight default link Awards53ActiveField CursorLine")
 
