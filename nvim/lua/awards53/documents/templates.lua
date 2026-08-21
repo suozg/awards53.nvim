@@ -15,14 +15,14 @@ function M.list(mode)
     for _, dir in ipairs(dirs) do
         if vim.fn.isdirectory(dir) == 1 then
             local org = vim.fn.glob(dir .. "/*.org", false, true)[1]
-            local ott = vim.fn.glob(dir .. "/*.ott", false, true)[1]
+            local odt = vim.fn.glob(dir .. "/*.odt", false, true)[1]
 
-            if org and ott then
+            if org and odt then
                 table.insert(result, {
                     id = vim.fn.fnamemodify(dir, ":t"),
                     path = dir,
                     org = org,
-                    ott = ott,
+                    odt = odt,
                 })
             else
                 vim.notify(

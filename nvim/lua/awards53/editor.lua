@@ -10,7 +10,7 @@ M.help_win = nil -- Вікно підказок внизу
 
 local help_lines = {
     "  R / X - Форматувати посаду у цьому полі / ПО ВСІХ КАРТКАХ   |  e / Е  - Склеїти рядки поточного поля / у ВСІХ картках",
-    "  f / a - Шукати фразу в ~/STATISTIKA / в базі нагород awards |  p      - Скинути пошуковий пароль ",
+    "  f / a - Шукати фразу в ~/STATISTIKA / в базі нагород awards |  c      - Скинути пошуковий пароль ",
 }
 
 -- -----------------------------------------------------------------------------
@@ -295,7 +295,7 @@ function M.open()
         ["e"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
         ["E"] = { function() M.save_core(buf) state.flatten_field_globally() M.refresh_editor_buffer(buf) end, nil },
         ["f"] = { function() search_module.process_all_rnokpp() end, "Пошук в ~/STATISTIKA/shtat" }, 
-        ["p"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 
+        ["c"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 
         ["a"] = { function() search_module.run_sql_search() end, "Пошук по SQLCipher базі нагород" },
         ["?"] = { function() require("awards53.help").open() end, false }, 
     }

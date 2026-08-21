@@ -36,10 +36,7 @@ function M.open()
             -- Ім'я для паралельного Org (лист)
             local org_output_name = string.format("%s_%s_letter.org", tpl.id, timestamp)
 
-            -- 1. Створюємо паралельний текстовий .org
-            require("awards53.documents.converter").create_parallel_org(awards_data, output_dir, org_output_name)
-
-            -- 2. Створюємо загальний ODT з таблицею
+            -- Створюємо загальний ODT з таблицею
             require("awards53.documents.converter").compile_to_odt({
                 template = tpl,
                 awards_data = awards_data,
@@ -47,14 +44,14 @@ function M.open()
                 output_name = odt_output_name,
             })
 
-            -- 3. Генерація окремого Нагородного листа для КОЖНОЇ картки (для "orden")
+            -- Генерація окремого Нагородного листа для КОЖНОЇ картки (для "orden")
             local created_award_sheets = {}
             if tpl.id == "orden" then
-                local sheet_tpl_path = vim.fn.stdpath("config") .. "/templates/templates53/awards/orden/orden_sheet.ott"
+                local sheet_tpl_path = vim.fn.stdpath("config") .. "/templates/templates53/awards/orden/orden_sheet.odt"
                 
                 if vim.fn.filereadable(sheet_tpl_path) == 1 then
                     created_award_sheets = require("awards53.documents.converter").generate_award_sheets({
-                        ott_path = sheet_tpl_path,
+                        odt_path = sheet_tpl_path,
                         awards_data = awards_data,
                         output_dir = output_dir,
                     })
@@ -69,7 +66,6 @@ function M.open()
                 local msg = {
                     { "Документи успішно створено:\n", "Identifier" },
                     { "• Зведений ODT: " .. odt_output_name .. "\n", "String" },
-                    { "• Супровідний Org: " .. org_output_name .. "\n", "Normal" },
                 }
                 
                 if #created_award_sheets > 0 then

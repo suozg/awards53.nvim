@@ -43,10 +43,10 @@ function M.create_document(tpl)
         table.insert(content, 1, tech_line)
     end
     
-    -- Додаємо шлях до OTT шаблону
-    if tpl.ott then
-        local ott_line = string.format("#+ODT_STYLES_FILE: %s", tpl.ott)
-        table.insert(content, 1, ott_line)
+    -- Додаємо шлях до шаблону
+    if tpl.odt then
+        local odt_line = string.format("#+ODT_STYLES_FILE: %s", tpl.odt)
+        table.insert(content, 1, odt_line)
     end
     
     vim.fn.writefile(content, dst)

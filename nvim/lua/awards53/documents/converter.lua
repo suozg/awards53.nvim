@@ -1,6 +1,5 @@
 local M = {}
 local context = require("awards53.documents.context")
-local inflect = require("awards53.inflect")
 
 -- Функція для парсингу метаданих з .org файлу
 local function read_org_metadata(filepath)
@@ -9,9 +8,9 @@ local function read_org_metadata(filepath)
     if not f then return nil end
 
     for line in f:lines() do
-        local ott = line:match("^#%+ODT_STYLES_FILE:%s*(.+)")
-        if ott then
-            metadata.ott = ott:gsub('"', ''):gsub("'", ""):match("^%s*(.-)%s*$")
+        local odt = line:match("^#%+ODT_STYLES_FILE:%s*(.+)")
+        if odt then
+            metadata.odt = odt:gsub('"', ''):gsub("'", ""):match("^%s*(.-)%s*$")
         end
 
         local key, val = line:match("^#%+([A-Z0-9_]+):%s*(.+)")
@@ -33,8 +32,8 @@ local function metadata_from_template(tpl)
         return nil
     end
 
-    if tpl.ott then
-        meta.ott = tpl.ott
+    if tpl.odt then
+        meta.odt = tpl.odt
     end
 
     return meta
@@ -56,6 +55,34 @@ local function esc_xml(s)
     s = s:gsub("\t", "<text:tab/>")
     
     return s
+end
+
+local function replace_field_with_paragraphs(xml, field_name, text)
+    if not text then
+        text = ""
+    end
+
+    text = tostring(text)
+    text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
+
+    local pattern =
+        '(<text:p[^>]-text:style%-name="([^"]+)"[^>]*>)__' ..
+        field_name ..
+        '__</text:p>'
+
+    return xml:gsub(pattern, function(open_tag, style)
+        local paragraphs = vim.split(text, "\n", { plain = true })
+        local out = {}
+
+        for _, paragraph in ipairs(paragraphs) do
+            table.insert(
+                out,
+                open_tag .. esc_xml(paragraph) .. "</text:p>"
+            )
+        end
+
+        return table.concat(out, "")
+    end)
 end
 
 -- =========================================================================
@@ -231,21 +258,21 @@ function M.compile_to_odt(opts)
     local current_file = opts.org_file or vim.api.nvim_buf_get_name(0)
     local meta = get_metadata(opts, current_file)
 
-    if not meta or not meta.ott then
-        vim.notify("Помилка: Не знайдено шлях до шаблону .ott у метаданих!", vim.log.levels.ERROR)
+    if not meta or not meta.odt then
+        vim.notify("Помилка: Не знайдено шлях до шаблону .odt у метаданих!", vim.log.levels.ERROR)
         return
     end
 
-    local ott_path = meta.ott
-    if vim.fn.filereadable(ott_path) == 0 then
-        vim.notify("Файл шаблону .ott не знайдено за шляхом: " .. ott_path, vim.log.levels.ERROR)
+    local odt_path = meta.odt
+    if vim.fn.filereadable(odt_path) == 0 then
+        vim.notify("Файл шаблону .odt не знайдено за шляхом: " .. odt_path, vim.log.levels.ERROR)
         return
     end
 
     local tmp_dir = vim.fn.tempname()
     vim.fn.mkdir(tmp_dir, "p")
 
-    local unzip_cmd = string.format("7z x %s -o%s > /dev/null", vim.fn.shellescape(ott_path), vim.fn.shellescape(tmp_dir))
+    local unzip_cmd = string.format("7z x %s -o%s > /dev/null", vim.fn.shellescape(odt_path), vim.fn.shellescape(tmp_dir))
     vim.fn.system(unzip_cmd)
 
     local content_xml_path = tmp_dir .. "/content.xml"
@@ -305,45 +332,6 @@ function M.convert_current()
         "Поточний буфер не є документом Documents53 або базою Awards53.",
         vim.log.levels.ERROR
     )
-end
-
-function M.create_parallel_org(awards_data, output_dir, org_filename)
-    if not awards_data or not awards_data.headers or #awards_data.headers == 0 then
-        return
-    end
-
-    local first_field_key = awards_data.headers[1]
-    local total_records = #awards_data.records
-    local list_lines = {}
-
-    for i, record in ipairs(awards_data.records) do
-        local raw_value = record[first_field_key] or ""
-        local original_text = type(raw_value) == "table" and table.concat(raw_value, " ") or tostring(raw_value)
-
-        local modified_value = inflect.to_accusative(original_text)
-        local separator = (i == total_records) and "." or ";"
-        local line_suffix = (i == total_records) and "" or "\n"
-        
-        table.insert(list_lines, string.format("%d. %s%s%s", i, modified_value, separator, line_suffix))
-    end
-
-    local body_content = table.concat(list_lines, " ")
-
-    local org_template = {
-        "#+ODT_STYLES_FILE: " .. vim.fn.stdpath("config") .. "/templates/templates53/documents/letter/letter.ott",
-        "#+DOC53_REQUIRED: #+HEAD,#+BODY,#+FOOTER",
-        "#+HEAD: АДРЕСАТ",
-        "#+BODY: " .. body_content,
-        "#+FOOTER: Командир військової частини А0536"
-    }
-
-    local intermediate_org = output_dir .. "/" .. org_filename
-    local f = io.open(intermediate_org, "w")
-    if f then
-        f:write(table.concat(org_template, "\n"))
-        f:close()
-        vim.cmd("edit " .. vim.fn.fnameescape(intermediate_org))
-    end
 end
 
 local MONTHS_UA = {
@@ -410,7 +398,7 @@ end
 
 function M.generate_award_sheets(opts)
     opts = opts or {}
-    local ott_path = opts.ott_path
+    local odt_path = opts.odt_path
     local awards_data = opts.awards_data
     local output_dir = opts.output_dir or vim.fn.getcwd()
     local created_files = {}
@@ -423,7 +411,7 @@ function M.generate_award_sheets(opts)
     local tmp_dir = vim.fn.tempname()
     vim.fn.mkdir(tmp_dir, "p")
 
-    local unzip_cmd = string.format("7z x %s -o%s > /dev/null", vim.fn.shellescape(ott_path), vim.fn.shellescape(tmp_dir))
+    local unzip_cmd = string.format("7z x %s -o%s > /dev/null", vim.fn.shellescape(odt_path), vim.fn.shellescape(tmp_dir))
     vim.fn.system(unzip_cmd)
 
     local content_xml_path = tmp_dir .. "/content.xml"
@@ -470,10 +458,22 @@ function M.generate_award_sheets(opts)
         }
 
         for num_str, raw_text in pairs(field_mapping) do
-            single_xml = single_xml:gsub(
-                "__FIELD" .. num_str .. "__",
-                esc_xml(raw_text)
-            )
+            if num_str == "5" then
+                single_xml = replace_field_with_paragraphs(
+                    single_xml,
+                    "FIELD5",
+                    raw_text
+                )
+            else
+                local replacement = esc_xml(raw_text)
+
+                single_xml = single_xml:gsub(
+                    "__FIELD" .. num_str .. "__",
+                    function()
+                        return replacement
+                    end
+                )
+            end
         end
 
         local single_content_path = single_tmp_dir .. "/content.xml"
