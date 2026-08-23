@@ -294,11 +294,13 @@ function M.open()
     local editor_keymaps = {
         ["R"] = { function() M.save_core(buf) actions.format_rnokpp_in_current_card() M.refresh_editor_buffer(buf) end, nil },
         ["X"] = { function() M.save_core(buf) actions.format_rnokpp_in_all_cards() M.refresh_editor_buffer(buf) end, nil },
+        ["zs"] = { function() require("awards53.abbreviations").select_and_insert() end, nil },
+        ["zm"] = { function() require("awards53.abbreviations").manage_abbreviations() end, nil }, 
         ["S"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
         ["E"] = { function() M.save_core(buf) state.flatten_field_globally() M.refresh_editor_buffer(buf) end, nil },
         ["f"] = { function() search_module.process_all_rnokpp() end, "Пошук в ~/STATISTIKA/shtat" }, 
         ["c"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 
-        ["a"] = { function() search_module.run_sql_search() end, "Пошук по SQLCipher базі нагород" },
+        ["a"] = { function() search_module.run_sql_search() end, "Пошук по базі нагород" },
         ["?"] = { function() require("awards53.help").open() end, false }, 
     }
 

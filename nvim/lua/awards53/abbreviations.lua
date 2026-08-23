@@ -4,15 +4,6 @@ local M = {}
 local config_dir = vim.fn.stdpath("config") .. "/awards53"
 local config_file = config_dir .. "/abbreviations.json"
 
--- Дефолтний словник (якщо файл порожній або відсутній)
-local default_dictionary = {
-  ["3АКого"]   = "3 армійського корпусу",
-  ["іменіВМ"]  = "імені князя Володимира Мономаха",
-  ["53ди"]     = "53 окремої механізованої бригади",
-  ["53да"]     = "53 окрема механізована бригада",
-  ["53ді"]     = "53 окремій механізованій бригаді",
-}
-
 -- Глобальний кеш для роботи
 local dictionary = {}
 local keys = {}
@@ -24,20 +15,18 @@ function M.load_abbreviations()
     vim.fn.mkdir(config_dir, "p")
   end
 
-  -- Якщо файлу немає, створюємо з дефолтними значеннями
+  -- Якщо файлу немає, створюємо порожній JSON-об'єкт
   if vim.fn.filereadable(config_file) == 0 then
     local f = io.open(config_file, "w")
     if f then
-      f:write(vim.json.encode(default_dictionary))
+      f:write("{}")
       f:close()
     end
   end
 
   -- Читаємо файл
   local f = io.open(config_file, "r")
-  if not f then
-    dictionary = default_dictionary
-  else
+  if f then
     local content = f:read("*a")
     f:close()
 
@@ -46,10 +35,11 @@ function M.load_abbreviations()
     if success and type(parsed) == "table" then
       dictionary = parsed
     else
-      -- Якщо користувач зламав JSON, плагін не впаде, а попередить і завантажить дефолт
-      vim.notify("[Awards53] Помилка синтаксису в abbreviations.json! Завантажено дефолтні налаштування.", vim.log.levels.WARN)
-      dictionary = default_dictionary
+      vim.notify("[Awards53] Помилка синтаксису в abbreviations.json!", vim.log.levels.WARN)
+      dictionary = {}
     end
+  else
+    dictionary = {}
   end
 
   -- Оновлюємо та сортуємо ключі за довжиною (для правильного матчингу)
@@ -60,13 +50,10 @@ end
 
 -- Відкриття файлу налаштувань для користувача
 function M.edit_config()
-  -- Гарантуємо, що файл існує перед відкриттям
   M.load_abbreviations()
   
-  -- Відкриваємо файл у новій вкладці (або спліті, як вам зручніше)
   vim.cmd("tabedit " .. vim.fn.fnameescape(config_file))
   
-  -- Вмикаємо автокоманду: при збереженні цього JSON налаштування автоматично перезавантажаться в пам'ять
   local bufnr = vim.api.nvim_get_current_buf()
   vim.api.nvim_create_autocmd("BufWritePost", {
     buffer = bufnr,
@@ -78,11 +65,51 @@ function M.edit_config()
   })
 end
 
--- Реєстрація автокоманди для буфера
+-- Функція для застосування абревіатур до тексту (при форматуванні)
+function M.apply_abbreviations(text)
+  if #keys == 0 then
+    M.load_abbreviations()
+  end
+
+  for _, key in ipairs(keys) do
+    local value = dictionary[key]
+    text = text:gsub(vim.pesc(key), value)
+  end
+  return text
+end
+
+-- Інтерактивне меню вибору через vim.ui.select
+function M.select_and_insert()
+  if #keys == 0 then
+    M.load_abbreviations()
+  end
+
+  if vim.tbl_isempty(dictionary) then
+    vim.notify("[Awards53] Словник абревіатур порожній! Додайте їх у abbreviations.json", vim.log.levels.WARN)
+    return
+  end
+
+  local items = {}
+  for _, k in ipairs(keys) do
+    table.insert(items, string.format("%s ➔ %s", k, dictionary[k]))
+  end
+
+  vim.ui.select(items, {
+    prompt = "Виберіть абревіатуру для вставки:",
+  }, function(choice)
+    if not choice then return end
+    local key = choice:match("^(.-)%s+➔")
+    if key and dictionary[key] then
+      local val = dictionary[key]
+      vim.api.nvim_put({val}, "c", true, true)
+    end
+  end)
+end
+
+-- Реєстрація автокоманди для буфера (автозаміна під час введення тексту)
 function M.register_buffer_abbreviations(bufnr)
   bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-  -- Якщо кеш порожній, робимо первинне завантаження
   if #keys == 0 then
     M.load_abbreviations()
   end
@@ -108,6 +135,139 @@ function M.register_buffer_abbreviations(bufnr)
       end
     end,
   })
+end
+
+-- Функція збереження словника у файл з перехопленням помилок
+local function save_dictionary()
+  local f = io.open(config_file, "w")
+  if f then
+    f:write(vim.json.encode(dictionary))
+    f:close()
+    -- Оновлюємо ключі після збереження
+    keys = {}
+    for k in pairs(dictionary) do table.insert(keys, k) end
+    table.sort(keys, function(a, b) return #a > #b end)
+    vim.notify("[Awards53] Абревіатури успішно збережено!", vim.log.levels.INFO)
+  else
+    vim.notify("[Awards53] Помилка збереження файлу абревіатур!", vim.log.levels.ERROR)
+  end
+end
+
+-- Інтерактивне меню керування (додавання / редагування / видалення)
+function M.manage_abbreviations()
+  if #keys == 0 then
+    M.load_abbreviations()
+  end
+
+  local options = {
+    "➕ Додати нову абревіатуру",
+    "✏️ Редагувати існуючу абревіатуру",
+    "🗑️ Видалити існуючу абревіатуру",
+    "👀 Переглянути список",
+  }
+
+  vim.ui.select(options, {
+    prompt = "Керування абревіатурами:",
+  }, function(choice)
+    if not choice then return end
+
+    if choice:match("Додати") then
+      vim.ui.input({ prompt = "Введіть коротку абревіатуру (ключ): " }, function(new_key)
+        if not new_key or new_key == "" then return end
+        
+        vim.ui.input({ prompt = "Введіть повний текст для '" .. new_key .. "': " }, function(new_val)
+          if not new_val or new_val == "" then return end
+
+          dictionary[new_key] = new_val
+          save_dictionary()
+        end)
+      end)
+
+    elseif choice:match("Редагувати") then
+      if vim.tbl_isempty(dictionary) then
+        vim.notify("[Awards53] Словник порожній!", vim.log.levels.WARN)
+        return
+      end
+
+      local items = {}
+      for _, k in ipairs(keys) do
+        table.insert(items, string.format("%s ➔ %s", k, dictionary[k]))
+      end
+
+      vim.ui.select(items, {
+        prompt = "Виберіть абревіатуру для редагування:",
+      }, function(edit_choice)
+        if not edit_choice then return end
+        local old_key = edit_choice:match("^(.-)%s+➔")
+        
+        if old_key and dictionary[old_key] then
+          local old_val = dictionary[old_key]
+          
+          -- 1. Редагуємо сам ключ (абрвіатуру)
+          vim.ui.input({ 
+            prompt = "Змінити ключ (абрвіатуру): ",
+            default = old_key,
+          }, function(new_key)
+            if not new_key or new_key == "" then return end
+
+            -- 2. Редагуємо повний текст
+            vim.ui.input({ 
+              prompt = "Змінити текст для '" .. new_key .. "': ",
+              default = old_val,
+            }, function(updated_val)
+              if not updated_val or updated_val == "" then return end
+
+              -- Якщо ключ змінився, видаляємо старий запис
+              if new_key ~= old_key then
+                dictionary[old_key] = nil
+              end
+
+              -- Зберігаємо під новим (або оновленим) ключем
+              dictionary[new_key] = updated_val
+              save_dictionary()
+            end)
+          end)
+        end
+      end)
+      
+    elseif choice:match("Видалити") then
+      if vim.tbl_isempty(dictionary) then
+        vim.notify("[Awards53] Словник порожній!", vim.log.levels.WARN)
+        return
+      end
+
+      local items = {}
+      for _, k in ipairs(keys) do
+        table.insert(items, string.format("%s ➔ %s", k, dictionary[k]))
+      end
+
+      vim.ui.select(items, {
+        prompt = "Виберіть абревіатуру для видалення:",
+      }, function(del_choice)
+        if not del_choice then return end
+        local key_to_del = del_choice:match("^(.-)%s+➔")
+        if key_to_del and dictionary[key_to_del] then
+          dictionary[key_to_del] = nil
+          save_dictionary()
+        end
+      end)
+
+    elseif choice:match("Переглянути") then
+      if vim.tbl_isempty(dictionary) then
+        vim.notify("[Awards53] Словник порожній!", vim.log.levels.WARN)
+        return
+      end
+
+      local items = {}
+      for _, k in ipairs(keys) do
+        table.insert(items, string.format("• [%s] = %s", k, dictionary[k]))
+      end
+
+      vim.ui.select(items, {
+        prompt = "Поточний список абревіатур (Натисніть Esc для виходу):",
+      }, function() end)
+    end
+  end)
 end
 
 return M

@@ -31,7 +31,6 @@ vim.api.nvim_create_autocmd("BufWritePost", {
     end,
 })
 
-
 -- -----------------------------------------------------------------------------
 -- Управління розкладкою клавіатури (xkb-switch + dwmblocks)
 -- -----------------------------------------------------------------------------
@@ -52,7 +51,6 @@ end
 local function set_layout(layout)
     vim.fn.jobstart({ "xkb-switch", "-s", layout })
     
-    -- Виправляємо тернарний оператор на звичайний if-else
     local display_text
     if layout == "ua" then
         display_text = "🌻UA"
@@ -79,22 +77,20 @@ vim.api.nvim_create_autocmd("InsertEnter", {
     end,
 })
 
--- При виході з Insert зберігаємо мову та перемикаємо на 'us'
+-- При виході з Insert зберігаємо мову та перемикаємо на 'us' 
+-- (але тільки якщо ми не вводимо абревіатуру через діалог vim.ui.input)
 vim.api.nvim_create_autocmd("InsertLeave", {
     group = group,
     callback = function()
+        -- Якщо активний командний рядок (йде введення через діалог), не чіпаємо розкладку
+        if vim.fn.mode() == "c" then return end
+        
         save_current_layout()
         set_layout("us")
     end,
 })
 
--- При переході в режим команд (:, /, ?) скидаємо на 'us' 
-vim.api.nvim_create_autocmd("CmdlineEnter", {
-    group = group,
-    callback = function()
-        set_layout("us")
-    end,
-})
+----------- кінець управління розкладкою -------------------------
 
 -- прибирає вертикальну лінію-індикатор довжини рядка для вікон orgagenda
 vim.api.nvim_create_autocmd("FileType", {

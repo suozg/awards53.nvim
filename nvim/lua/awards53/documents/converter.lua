@@ -1,26 +1,54 @@
 local M = {}
 local context = require("awards53.documents.context")
 
--- Функція для парсингу метаданих з .org файлу
+-- Функція для парсингу метаданих та багаторядкових полів з .org файлу
 local function read_org_metadata(filepath)
     local metadata = { fields = {} }
     local f = io.open(filepath, "r")
     if not f then return nil end
 
-    for line in f:lines() do
-        local odt = line:match("^#%+ODT_STYLES_FILE:%s*(.+)")
-        if odt then
-            metadata.odt = odt:gsub('"', ''):gsub("'", ""):match("^%s*(.-)%s*$")
-        end
+    local current_key = nil
+    local current_val_lines = {}
 
-        local key, val = line:match("^#%+([A-Z0-9_]+):%s*(.+)")
-        if key and key ~= "ODT_STYLES_FILE" and key ~= "DOC53_REQUIRED" then
-            metadata.fields[key] = val:match("^%s*(.-)%s*$")
+    for line in f:lines() do
+        -- Перевіряємо, чи є рядок початком нового системного тегу
+        local key, val = line:match("^#%+([A-Z0-9_]+):%s*(.*)")
+        
+        if key then
+            -- Якщо ми вже збирали попередній ключ — зберігаємо його перед переходом до нового
+            if current_key then
+                local full_text = table.concat(current_val_lines, "\n")
+                if current_key == "ODT_STYLES_FILE" then
+                    local raw_odt = full_text:gsub('"', ''):gsub("'", ""):match("^%s*(.-)%s*$")
+                    metadata.odt = vim.fn.expand(raw_odt)
+                elseif current_key ~= "DOC53_REQUIRED" then
+                    metadata.fields[current_key] = full_text:match("^%s*(.-)%s*$")
+                end
+            end
+            
+            current_key = key
+            current_val_lines = { val }
+        elseif current_key then
+            -- Якщо це рядок без префікса, але ми всередині ключа — це продовження багаторядкового тексту (наприклад, у #+BODY)
+            table.insert(current_val_lines, line)
         end
     end
+
+    -- Зберігаємо останній оброблений ключ
+    if current_key then
+        local full_text = table.concat(current_val_lines, "\n")
+        if current_key == "ODT_STYLES_FILE" then
+            local raw_odt = full_text:gsub('"', ''):gsub("'", ""):match("^%s*(.-)%s*$")
+            metadata.odt = vim.fn.expand(raw_odt)
+        elseif current_key ~= "DOC53_REQUIRED" then
+            metadata.fields[current_key] = full_text:match("^%s*(.-)%s*$")
+        end
+    end
+
     f:close()
     return metadata
 end
+
 
 local function metadata_from_template(tpl)
     if not tpl or not tpl.org then
@@ -53,6 +81,7 @@ local function esc_xml(s)
     s = s:gsub("\r", "\n")
     s = s:gsub("\n", "<text:line-break/>")
     s = s:gsub("\t", "<text:tab/>")
+    s = s:gsub("\\t", "<text:tab/>")
     
     return s
 end
@@ -75,12 +104,13 @@ local function replace_field_with_paragraphs(xml, field_name, text)
         local out = {}
 
         for _, paragraph in ipairs(paragraphs) do
-            table.insert(
-                out,
-                open_tag .. esc_xml(paragraph) .. "</text:p>"
-            )
+            -- Якщо рядок порожній, додаємо порожній абзац або пробіл для збереження відступу
+            if paragraph == "" then
+                table.insert(out, open_tag .. '<text:s/>' .. "</text:p>")
+            else
+                table.insert(out, open_tag .. esc_xml(paragraph) .. "</text:p>")
+            end
         end
-
         return table.concat(out, "")
     end)
 end
@@ -217,8 +247,9 @@ local function update_content_xml(content_xml_path, meta, awards_data)
     local xml = f:read("*a")
     f:close()
 
+    -- Проходимо по всіх полях з метаданих і замінюємо їх через багатоабзацну генерацію
     for key, value in pairs(meta.fields) do
-        xml = xml:gsub("DOCFIELD_" .. key, esc_xml(value))
+        xml = replace_field_with_paragraphs(xml, key, value)
     end
 
     xml = process_table_marker(xml, awards_data)
@@ -249,6 +280,8 @@ local function get_metadata(opts, current_file)
     end
 
     vim.cmd("write")
+    -- Додаємо зчитування метаданих з поточного файлу, якщо вони там є
+    return read_org_metadata(current_file)
 end
 
 function M.compile_to_odt(opts)
