@@ -9,8 +9,7 @@ M.help_buf = nil -- Буфер підказок
 M.help_win = nil -- Вікно підказок внизу
 
 local help_lines = {
-    "  R / X - Форматувати посаду у цьому полі / ПО ВСІХ КАРТКАХ   |  e / Е  - Склеїти рядки поточного поля / у ВСІХ картках",
-    "  f / a - Шукати фразу в ~/STATISTIKA / в базі нагород awards |  c      - Скинути пошуковий пароль ",
+    " Поле: R/X - Автоформат [тут/всюди], S/Е - Склеїти рядки [тут/всюди] || Дані: f/a - Шукати [файл/sql*], c - Скинути пароль",
 }
 
 -- -----------------------------------------------------------------------------
@@ -48,6 +47,7 @@ local function setup_help_window()
             vim.api.nvim_buf_set_lines(M.help_buf, 0, -1, false, help_lines)
             local h_bo = vim.bo[M.help_buf]
             h_bo.buftype, h_bo.bufhidden, h_bo.swapfile, h_bo.modifiable = "nofile", "hide", false, false
+            h_bo.syntax = "OFF"
         end
 
         local ok, win = pcall(vim.api.nvim_open_win, M.help_buf, false, {
@@ -70,6 +70,8 @@ local function setup_help_window()
 
         local cfg = require("awards53")
         local ns = cfg.ns_help or vim.api.nvim_create_namespace("awards53_editor_help")
+        -- Очищаємо попередні підсвічування на випадок оновлення і накладаємо єдиний стиль на кожен рядок
+        vim.api.nvim_buf_clear_namespace(M.help_buf, ns, 0, -1)
         for i = 0, #help_lines - 1 do
             vim.api.nvim_buf_add_highlight(M.help_buf, ns, "Awards53HelpText", i, 0, -1)
         end
@@ -292,7 +294,7 @@ function M.open()
     local editor_keymaps = {
         ["R"] = { function() M.save_core(buf) actions.format_rnokpp_in_current_card() M.refresh_editor_buffer(buf) end, nil },
         ["X"] = { function() M.save_core(buf) actions.format_rnokpp_in_all_cards() M.refresh_editor_buffer(buf) end, nil },
-        ["e"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
+        ["S"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
         ["E"] = { function() M.save_core(buf) state.flatten_field_globally() M.refresh_editor_buffer(buf) end, nil },
         ["f"] = { function() search_module.process_all_rnokpp() end, "Пошук в ~/STATISTIKA/shtat" }, 
         ["c"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 

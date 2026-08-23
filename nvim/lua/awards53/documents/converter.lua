@@ -249,7 +249,6 @@ local function get_metadata(opts, current_file)
     end
 
     vim.cmd("write")
-    return read_org_metadata(current_file)
 end
 
 function M.compile_to_odt(opts)
@@ -307,9 +306,7 @@ function M.compile_to_odt(opts)
     local move_ok = vim.fn.rename(tmp_odt_path, final_odt_path)
     vim.fn.delete(tmp_dir, "rf")
 
-    if move_ok == 0 then
-        vim.notify("Документ успішно створено: " .. output_filename, vim.log.levels.INFO)
-    else
+    if move_ok ~= 0 then
         vim.notify("Не вдалося зберегти фінальний .odt файл!", vim.log.levels.ERROR)
     end
 end
@@ -475,7 +472,6 @@ function M.generate_award_sheets(opts)
                 )
             end
         end
-
         local single_content_path = single_tmp_dir .. "/content.xml"
         local f_out = io.open(single_content_path, "w")
         if f_out then

@@ -1,82 +1,292 @@
 -- =============================================================================
--- 8. STATUSLINE
+-- STATUSLINE
 -- =============================================================================
-function _G.statusline()
-    local function flag(opt_name, label, key)
-        local enabled = vim.opt[opt_name]:get()
-        return string.format("[%s:%s]", label, enabled and key or "off")
+
+local M = {}
+
+-- -----------------------------------------------------------------------------
+-- Получение режима
+-- -----------------------------------------------------------------------------
+
+local function mode_info()
+    local mode = vim.fn.mode()
+
+    if mode:match("^[nN]") then
+        return "NORMAL", "SLModeNormal"
+    elseif mode == "i" or mode == "ic" or mode == "ix" then
+        return "INSERT", "SLModeInsert"
+    elseif mode:match("^[vV\22]") then
+        return "VISUAL", "SLModeVisual"
+    elseif mode == "R" or mode == "Rc" then
+        return "REPLACE", "SLModeReplace"
+    elseif mode == "t" then
+        return "TERMINAL", "SLModeTerminal"
+    elseif mode == "c" then
+        return "COMMAND", "SLModeCommand"
+    else
+        return mode:upper(), "SLModeOther"
+    end
+end
+
+-- -----------------------------------------------------------------------------
+-- Цвета
+-- -----------------------------------------------------------------------------
+
+local function setup_statusline_colors()
+    local light = vim.fn.filereadable(vim.fn.expand("~/.lightmode")) == 1
+
+    -- Цвета блока режима
+    local mode_colors
+
+    if light then
+        mode_colors = {
+            normal   = "#458588",
+            insert   = "#689d6a",
+            visual   = "#b16286",
+            replace  = "#cc241d",
+            terminal = "#d65d0e",
+            command  = "#98971a",
+            other    = "#665c54",
+        }
+    else
+        mode_colors = {
+            normal   = "#005577",
+            insert   = "#2e7d32",
+            visual   = "#8f3f71",
+            replace  = "#cc241d",
+            terminal = "#d65d0e",
+            command  = "#98971a",
+            other    = "#3c3836",
+        }
     end
 
-    local spell_state = "OFF"
-    if vim.opt.spell:get() then
-        local lang = vim.opt.spelllang:get()[1]
-        spell_state = (lang == "uk" and "UA" or (lang == "en_us" and "EN" or lang:upper()))
-    end
+    -- Основные цвета
+    local file_bg   = light and "#d5c4a1" or "#3c3836"
+    local file_fg   = light and "#3c3836" or "#ebdbb2"
 
-    local bufs = vim.fn.getbufinfo({buflisted = 1})
-    local b_idx = 0
-    for i, b in ipairs(bufs) do if b.bufnr == vim.fn.bufnr('%') then b_idx = i break end end
-    local b_stat = (#bufs > 1) and string.format(" [B:%d/%d] ", b_idx, #bufs) or ""
+    local right_bg  = light and "#bdae93" or "#504945"
+    local right_fg  = light and "#3c3836" or "#ebdbb2"
 
-    return table.concat({
-        " %f %m %y ", b_stat, "%=",
-        flag("list", "LST", "F6"), " ",
-        flag("wrap", "WRP", "F7"), " ",
-        flag("number", "NUM", "F8"), " ",
-        string.format("[SPELL:%s:F9]", spell_state),
-        " %l/%L:%c "
+    local mode_fg   = "#ffffff"
+
+    -- Фон всего statusline
+    vim.api.nvim_set_hl(0, "StatusLine", {
+        bg = file_bg,
+        fg = file_fg,
+    })
+
+    -- Режимы
+    vim.api.nvim_set_hl(0, "SLModeNormal", {
+        bg = mode_colors.normal,
+        fg = mode_fg,
+        bold = true,
+    })
+
+    vim.api.nvim_set_hl(0, "SLModeInsert", {
+        bg = mode_colors.insert,
+        fg = mode_fg,
+        bold = true,
+    })
+
+    vim.api.nvim_set_hl(0, "SLModeVisual", {
+        bg = mode_colors.visual,
+        fg = mode_fg,
+        bold = true,
+    })
+
+    vim.api.nvim_set_hl(0, "SLModeReplace", {
+        bg = mode_colors.replace,
+        fg = mode_fg,
+        bold = true,
+    })
+
+    vim.api.nvim_set_hl(0, "SLModeTerminal", {
+        bg = mode_colors.terminal,
+        fg = mode_fg,
+        bold = true,
+    })
+
+    vim.api.nvim_set_hl(0, "SLModeCommand", {
+        bg = mode_colors.command,
+        fg = mode_fg,
+        bold = true,
+    })
+
+    vim.api.nvim_set_hl(0, "SLModeOther", {
+        bg = mode_colors.other,
+        fg = mode_fg,
+        bold = true,
+    })
+
+    -- Файл
+    vim.api.nvim_set_hl(0, "SLFile", {
+        bg = file_bg,
+        fg = file_fg,
+    })
+
+    -- Разделитель режим → файл
+    vim.api.nvim_set_hl(0, "SLModeSep", {
+        fg = mode_colors[({
+            SLModeNormal = "normal",
+            SLModeInsert = "insert",
+            SLModeVisual = "visual",
+            SLModeReplace = "replace",
+            SLModeTerminal = "terminal",
+            SLModeCommand = "command",
+            SLModeOther = "other",
+        })[select(2, mode_info())] or "normal"],
+        bg = file_bg,
+    })
+
+    -- Правая часть
+    vim.api.nvim_set_hl(0, "SLRight", {
+        bg = right_bg,
+        fg = right_fg,
+    })
+
+    -- Разделитель файл → правая часть
+    vim.api.nvim_set_hl(0, "SLRightSep", {
+        fg = file_bg,
+        bg = right_bg,
+    })
+
+    -- Разделитель справа
+    vim.api.nvim_set_hl(0, "SLRightEnd", {
+        fg = right_bg,
+        bg = file_bg,
     })
 end
 
--- Прив'язуємо функцію до опції статусбара
-vim.opt.statusline = "%!v:lua.statusline()"
+-- -----------------------------------------------------------------------------
+-- Statusline
+-- -----------------------------------------------------------------------------
 
--- =============================================================================
--- Динамічна зміна кольору StatusLine залежно від режиму і теми
--- =============================================================================
-local function update_statusline_color()
-    vim.defer_fn(function()
-        -- Визначаємо фон на основі наявності файлу ~/.lightmode
-        local theme_file = vim.fn.expand("~/.lightmode")
-        local mode = vim.fn.mode()
-        if mode:match("^[nN]") then
-            if vim.fn.filereadable(theme_file) == 1 then
-                -- Normal режим світла тема (сірий DWM)
-                vim.api.nvim_set_hl(0, "StatusLine", { bg = "#eeeeee", fg = "#444444", bold = true })
-            else
-                -- Normal режим темна тема (синій DWM)
-                vim.api.nvim_set_hl(0, "StatusLine", { bg = "#005577", fg = "#ffffff", bold = true })
-            end
-        elseif mode == "i" or mode == "ic" or mode == "ix" then
-            -- Insert режим (зелений)
-            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#2e7d32", fg = "#ffffff", bold = true })
-        elseif mode:match("^[vV\22]") then
-            -- Visual режим
-            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#8f3f71", fg = "#ffffff", bold = true })
-        elseif mode == "t" then
-            -- Режим терміналу
-            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#d65d0e", fg = "#ffffff", bold = true })
-        else
-            -- Інші режими
-            vim.api.nvim_set_hl(0, "StatusLine", { bg = "#3c3836", fg = "#ebdbb2" })
+function M.render()
+    local mode_name, mode_hl = mode_info()
+
+    -- Имя файла
+    local file = vim.fn.expand("%:t")
+    if file == "" then
+        file = "[No Name]"
+    end
+
+    -- Modified
+    local modified = vim.bo.modified and " [+]" or ""
+
+    -- Статистика буферов
+    local bufs = vim.fn.getbufinfo({ buflisted = 1 })
+
+    local b_idx = 0
+    for i, b in ipairs(bufs) do
+        if b.bufnr == vim.fn.bufnr("%") then
+            b_idx = i
+            break
         end
-        
-        vim.cmd("redrawstatus")
-    end, 10)
+    end
+
+    local buffers = ""
+    if #bufs > 1 then
+        buffers = string.format(" B:%d/%d ", b_idx, #bufs)
+    end
+
+    -- Опции
+    local list = vim.opt.list:get() and "LST:on" or "LST:off"
+    local wrap = vim.opt.wrap:get() and "WRP:on" or "WRP:F7"
+    local number = vim.opt.number:get() and "NUM:on" or "NUM:F8"
+
+    local spell = "SPELL:OFF:F9"
+
+    if vim.opt.spell:get() then
+        local lang = vim.opt.spelllang:get()[1]
+
+        if lang == "uk" then
+            spell = "SPELL:UA:F9"
+        elseif lang == "en_us" then
+            spell = "SPELL:EN:F9"
+        else
+            spell = "SPELL:" .. lang:upper() .. ":F9"
+        end
+    end
+
+    local position = string.format(
+        " %d/%d:%d ",
+        vim.fn.line("."),
+        vim.fn.line("$"),
+        vim.fn.col(".")
+    )
+
+    -- ВАЖНО:
+    --  имеет цвет предыдущего блока и фон следующего.
+    --
+    -- Поэтому получается:
+    --
+    -- [ NORMAL ][ filename ][ options ]
+    --
+
+    return table.concat({
+        "%#" .. mode_hl .. "# ",
+        mode_name,
+        " ",
+
+        "%#SLModeSep#",
+
+        "%#SLFile# ",
+        file,
+        modified,
+        buffers,
+        " ",
+
+        "%=",
+
+        "%#SLRightEnd#",
+
+        "%#SLRight# ",
+        list,
+        "  ",
+        wrap,
+        "  ",
+        number,
+        "  ",
+        spell,
+        position,
+
+        " ",
+    })
 end
 
-local status_group = vim.api.nvim_create_augroup("StatusLineModeColors", { clear = true })
+-- -----------------------------------------------------------------------------
+-- Устанавливаем statusline
+-- -----------------------------------------------------------------------------
 
-vim.api.nvim_create_autocmd({ 
-    "ModeChanged", 
-    "BufEnter", 
+vim.opt.statusline = "%!v:lua.require'config.statusline'.render()"
+
+-- -----------------------------------------------------------------------------
+-- Обновление цветов
+-- -----------------------------------------------------------------------------
+
+local group = vim.api.nvim_create_augroup(
+    "StatusLineColors",
+    { clear = true }
+)
+
+vim.api.nvim_create_autocmd({
+    "ModeChanged",
+    "BufEnter",
     "WinEnter",
+    "InsertEnter",
     "InsertLeave",
-    "InsertEnter"
+    "ColorScheme",
 }, {
-    group = status_group,
-    callback = update_statusline_color,
+    group = group,
+    callback = function()
+        vim.schedule(function()
+            setup_statusline_colors()
+            vim.cmd("redrawstatus!")
+        end)
+    end,
 })
 
--- Первинний виклик при завантаженні
-update_statusline_color()
+-- Первичная установка
+setup_statusline_colors()
+
+return M

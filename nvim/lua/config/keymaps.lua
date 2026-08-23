@@ -61,8 +61,10 @@ local function toggle_lf()
     vim.bo[lf_buf].buftype = 'nofile'
     vim.bo[lf_buf].bufhidden = 'wipe'
     vim.bo[lf_buf].buflisted = false
-
-    vim.wo[lf_win].statusline = "%#StatusLine# 📁 LF | [Enter]: Відкрити | [<leader>e]: Закрити | [Ctrl+h]: Вгору/Вниз "
+    
+    -- Вимикаємо перевірку орфографії для цього вікна
+    vim.wo[lf_win].spell = false
+    vim.wo[lf_win].statusline = "%#StatusLine# 📁 LF | [<leader>e]: Закрити LF | [Ctrl+h]: Вгору/Вниз "
 
     -- 4. Запуск lf
     vim.fn.termopen(string.format('lf -selection-path="%s"', selection_file), {

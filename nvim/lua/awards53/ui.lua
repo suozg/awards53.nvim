@@ -21,15 +21,70 @@ vim.cmd("highlight default link Awards53ActiveField CursorLine")
 local function apply_field_highlighting(buf) 
     vim.api.nvim_buf_clear_namespace(buf, NS_ID, 0, -1) 
     local line_count = vim.api.nvim_buf_line_count(buf)
+    
     for i = 0, line_count - 1 do
         local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1]
-        if line and line:match("^%s%s.*") then
+        
+        -- Якщо рядок містить наш маркер лінії
+        if line and line:find("~~~~") then
             vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
                 end_row = i,
                 end_col = #line,
-                hl_group = syntax_group,
-                hl_eol = true,
+                hl_group = "Awards53Separator",
+                priority = 100,
             })
+        end
+        
+        -- Підсвітка розділювача Поле 
+        if line and line:match("󰓻") then
+            local sep_len = #("")
+            local first_sep = line:find("")
+            local last_sep = nil
+            
+            if first_sep then
+                -- Шукаємо другий куточок після першого
+                last_sep = line:find("", first_sep + sep_len)
+            end
+            
+            -- Визначаємо, де має закінчуватися базове тло
+            local end_col = last_sep and (last_sep - 1) or #line
+            
+            -- ШАР 1: Базове підсвічування (тепер НЕ до кінця вікна)
+            vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
+                end_row = i,
+                end_col = end_col,
+                hl_group = syntax_group,
+                hl_eol = false, -- Тло більше не тягнеться до правого краю
+                priority = 100,
+            })
+            
+            if first_sep then
+                -- ШАР 2: Зелений блок початку
+                vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
+                    end_row = i,
+                    end_col = first_sep - 1,
+                    hl_group = "Awards53ActiveFieldPrefix",
+                    priority = 200, 
+                })
+                
+                -- ШАР 3: Перший куточок (зелений текст на бежевому тлі)
+                vim.api.nvim_buf_set_extmark(buf, NS_ID, i, first_sep - 1, {
+                    end_row = i,
+                    end_col = first_sep - 1 + sep_len,
+                    hl_group = "Awards53ActiveFieldSeparator",
+                    priority = 200, 
+                })
+            end
+            
+            if last_sep then
+                -- ШАР 4: Кінцевий куточок (бежевий текст на прозорому тлі)
+                vim.api.nvim_buf_set_extmark(buf, NS_ID, i, last_sep - 1, {
+                    end_row = i,
+                    end_col = last_sep - 1 + sep_len,
+                    hl_group = "Awards53ActiveFieldSuffix",
+                    priority = 200, 
+                })
+            end
         end
     end
 end
@@ -99,16 +154,52 @@ local function bind_keys()
         ["<H>"] = { function() state.jump(5) end, true }, 
         ["<L>"] = { function() state.jump(-5) end, true }, 
         
-        ["g"]   = { function() if vim.v.count > 0 then return state.goto_record(vim.v.count) end end, true }, 
-        ["S"]   = { function() state.sort_by(cfg.config.default_sort) state.first() end, true }, 
+        ["g"] = { function() 
+            local total_records = state.count()
+            if total_records == 0 then return end
+
+            local count = vim.v.count
+            if count > 0 then
+                state.goto_record(count)
+                M.redraw()
+            else
+                vim.ui.input({ prompt = "Номер картки для переходу (1-" .. total_records .. "): " }, function(input)
+                    local num = tonumber(input)
+                    if num then
+                        state.goto_record(num)
+                        M.redraw()
+                    end
+                end)
+            end
+        end, false },
         
         ["j"]   = { function() return state.next_field() end, true },
         ["k"]   = { function() return state.prev_field() end, true },
 
+        -- Перехід до поля за номером через лічильник (наприклад, натиснувши `3go` або перейшовши за промовтом)
+        ["f"] = { function() 
+            local total = #state.headers_list()
+            if total == 0 then return end
+
+            local count = vim.v.count
+            if count > 0 then
+                state.field = math.max(1, math.min(count, total))
+                state.last_field = state.field
+                M.redraw()
+            else
+                vim.ui.input({ prompt = "Номер поля для переходу (1-" .. total .. "): " }, function(input)
+                    local num = tonumber(input)
+                    if num then
+                        state.field = math.max(1, math.min(num, total))
+                        state.last_field = state.field
+                        M.redraw()
+                    end
+                end)
+            end
+        end, false },
+        
         ["J"]   = { function() return state.move_field_content_down() end, true }, 
         ["K"]   = { function() return state.move_field_content_up() end, true }, 
-        ["<leader>j"] = { function() return state.move_field_globally_down() end, true }, 
-        ["<leader>k"] = { function() return state.move_field_globally_up() end, true }, 
         
         -- Закладки
         ["m"]   = { function() state.toggle_bookmark() end, true },
@@ -159,7 +250,7 @@ local function bind_keys()
         ["N"]   = { function() return state.find_next(-1) end, true }, 
         ["0"]   = { function() return state.collapse_empty_fields_globally() end, true }, 
         ["O"]   = { function() actions.sort_officers_first() state.first() end, true }, 
-
+        ["S"]   = { function() state.sort_by(cfg.config.default_sort) state.first() end, true }, 
         ["?"]   = { function() require("awards53.help").open() end, false }, 
     }
 
@@ -176,6 +267,27 @@ function M.open()
         vim.bo[M.body_buf].swapfile = false 
         
         update_ui_buffer_title()
+
+        -- Логіка приховування курсора ===
+        local orig_guicursor = vim.o.guicursor
+        local cursor_grp = vim.api.nvim_create_augroup("Awards53HiddenCursorToggle", { clear = true })
+        -- Робимо курсор прозорим при вході в буфер картки
+        vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter" }, {
+            buffer = M.body_buf,
+            group = cursor_grp,
+            callback = function()
+                vim.o.guicursor = "n-v-c:block-Awards53HiddenCursor"
+            end,
+        })
+        -- Повертаємо стандартний курсор при виході (наприклад, при переході в редактор поля)
+        vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, {
+            buffer = M.body_buf,
+            group = cursor_grp,
+            callback = function()
+                vim.o.guicursor = orig_guicursor
+            end,
+        })
+        -- ===========================================
 
         local keys_to_disable = { 
             "<Up>", "<Down>", "<Left>", "<Right>", 

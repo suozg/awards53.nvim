@@ -1,10 +1,9 @@
--- lua/awards53/body.lua
 local M = {}
 
 local state = require("awards53.state")
 
 local function hr(width)
-    return string.rep("─", width)
+    return string.rep("~", width)
 end
 
 function M.render()
@@ -16,35 +15,27 @@ function M.render()
     for i, field in ipairs(state.headers_list()) do
         local is_active = (i == state.field_index())
 
-        -- Заголовок поля і роздільник
+        -- Заголовок активного поля у вигляді чистого рядка
         if is_active then
-            table.insert(lines, "[  Поле " .. field .. ":  j▲ k▼ i►󰏫 F/F➕ J/K↧(space-j/k:⇊) 0∅ B  ]")
-            table.insert(lines, "" .. hr(55)) -- Верхня границя блока
+            local total_fields = #state.headers_list()
+            local header_text = string.format(" 󰓻 Поле %s/%d     j▲ k▼ #f    🖊:i► F-    ⇊:J/K  ", field, total_fields)
+            table.insert(lines, header_text)
         else
-            table.insert(lines, "[" .. field .. "]") 
+            table.insert(lines, "   [" .. field .. "]") 
         end
 
         local value = record[field] or {}
 
-        -- Вміст поля
+        -- Вміст поля (без зайвих відступів, щоб не викликати суцільне підсвічування)
         if type(value) == "table" then
             for _, line in ipairs(value) do
-                if is_active then
-                    -- Відступ і вертикальна лінія для АКТИВНОГО блока 
-                    table.insert(lines, "  " .. line)
-                else
-                    table.insert(lines, "" .. line)
-                end
+                table.insert(lines, "   " .. line)
             end
+            table.insert(lines, "   " .. hr(58))
         else
-            if is_active then
-                table.insert(lines, "  " .. tostring(value))
-            else
-                table.insert(lines, "" .. tostring(value))
-            end
+            table.insert(lines, "   " .. tostring(value))
         end
 
-        -- Нижня границя активного блока або порожній рядок
         table.insert(lines, "")
     end
  

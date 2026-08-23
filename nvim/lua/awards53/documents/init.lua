@@ -60,23 +60,23 @@ function M.open()
                 end
             end
             
-            -- Гарне сповіщення про створені документи
+            -- Гарне сповіщення про створені документи через mini.notify
             vim.defer_fn(function()
-                vim.cmd("redraw")
-                local msg = {
-                    { "Документи успішно створено:\n", "Identifier" },
-                    { "• Зведений ODT: " .. odt_output_name .. "\n", "String" },
+                local lines = {
+                    "• Зведений ODT: " .. odt_output_name,
                 }
                 
                 if #created_award_sheets > 0 then
-                    table.insert(msg, { string.format("• Нагородні листи (%d шт.):\n", #created_award_sheets), "Special" })
+                    table.insert(lines, string.format("• Нагородні листи (%d шт.):", #created_award_sheets))
                     for _, sheet_name in ipairs(created_award_sheets) do
-                        table.insert(msg, { "   - " .. sheet_name .. "\n", "Directory" })
+                        table.insert(lines, "    - " .. sheet_name)
                     end
                 end
                 
-                vim.api.nvim_echo(msg, true, {})
+                -- Виводимо все одним повідомленням через стандартний vim.notify (який перехоплює mini.notify)
+                vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
             end, 150)
+
             return
         end
 

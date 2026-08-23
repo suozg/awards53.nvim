@@ -1,5 +1,7 @@
 --- leader key
 vim.g.mapleader = " "
+--- скриваем поле командной строки
+vim.opt.cmdheight = 0
 
 -- завантажуємо системні опції та автокоманди,
 require("config.options")

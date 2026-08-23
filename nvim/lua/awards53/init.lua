@@ -29,6 +29,35 @@ function M.setup(opts)
     vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "NONE", bold = false })
     vim.api.nvim_set_hl(0, "Awards53RnokppError", { fg = "#FFFFFF", bg = "#FF0000", bold = true })
     vim.cmd("highlight default link Awards53ActiveField CursorLine")
+    -- група для початку рядка ""Поле"" (зелений колір)
+    vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { fg = "#ffffff", bg = "#739313", bold = true }) 
+    -- Прозора група для приховування курсора в нормальному режимі
+    vim.api.nvim_set_hl(0, "Awards53HiddenCursor", { blend = 100, nocombine = true })
+    -- Приглушений колір для ліній-роздільників (бере колір коментарів поточної теми)
+    vim.api.nvim_set_hl(0, "Awards53Separator", { link = "Comment" })
+    -- Зелений текст для куточка (без тла, щоб зливалося з CursorLine)
+    vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { fg = "#739313" })
+    -- Функція для динамічного визначення кольору кінцевого куточка
+    local function update_suffix_color()
+        -- Отримуємо фінальні кольори групи CursorLine
+        local hl = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
+        
+        -- Конвертуємо числовий колір фону в HEX (якщо він є), інакше ставимо NONE
+        local bg_color = hl.bg and string.format("#%06x", hl.bg) or "NONE"
+        
+        -- Встановлюємо знайдений фон як колір тексту для кінцевого куточка
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { fg = bg_color, bg = "NONE" })
+    end
+
+    -- Викликаємо функцію одразу 
+    update_suffix_color()
+
+    -- Автоматично оновлюємо колір куточка при зміні теми (ColorScheme)
+    vim.api.nvim_create_autocmd("ColorScheme", {
+        pattern = "*",
+        callback = update_suffix_color,
+    })
+
 
     -- 3. Реєстрація базових команд плагіна (Awards53, Awards53abbr)[cite: 9]
     require("awards53.commands").setup()
