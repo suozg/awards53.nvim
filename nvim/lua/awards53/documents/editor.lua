@@ -16,28 +16,22 @@ function M.open(file)
     M.protect_tech_lines(buf)
 end
 
-
 function M.protect_tech_lines(buf)
     buf = buf or vim.api.nvim_get_current_buf()
     
     local initial_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local expected_structure = {}
-    local seen_meta = {}
 
     for i, line in ipairs(initial_lines) do
         local full_prefix = line:match("^#%+[A-Z0-9_]+:%s*")
         local meta_prefix = line:match("^#%+ODT_STYLES_FILE:") or line:match("^#%+DOC53_REQUIRED:")
 
         if meta_prefix then
-            local meta_key = meta_prefix:match("^#%+([A-Z0-9_]+):")
-            if meta_key and not seen_meta[meta_key] then
-                seen_meta[meta_key] = true
-                expected_structure[i] = {
-                    prefix = meta_prefix,
-                    is_meta = true,
-                    full_original = line
-                }
-            end
+            expected_structure[i] = {
+                prefix = meta_prefix,
+                is_meta = true,
+                full_original = line
+            }
         elseif full_prefix then
             expected_structure[i] = {
                 prefix = full_prefix,
