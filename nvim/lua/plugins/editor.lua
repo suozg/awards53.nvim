@@ -11,19 +11,29 @@ return {
 
     {
         "lukas-reineke/indent-blankline.nvim",
-        -- Завантажуємо лише при відкритті файлів
+        -- рисует вертикальние полоси которие показивают отступи кода слева
         event = { "BufReadPost", "BufNewFile" },
-        main = "ibl", -- Обов'язково для нової версії v3
+        main = "ibl",
+
         opts = {
             indent = {
-                char = "│", -- Ваша вертикальна лінія
+                char = "│",
             },
+
+            viewport_buffer = {
+                min = 0,
+                max = 200,
+            },
+
+            scope = {
+                enabled = false,
+            },
+
             whitespace = {
-                -- Замість show_trailing_blankline_indent:
-                remove_blankline_trail = true, 
+                remove_blankline_trail = true,
             },
+
             exclude = {
-                -- Замість filetype_exclude:
                 filetypes = {
                     "help",
                     "terminal",
