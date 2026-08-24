@@ -210,7 +210,7 @@ function M.flatten_current_field()
     M.snapshot()
     record[key] = result
     M.is_changed = true
-    utils.info("Поточне поле успішно відформатовано та замінено в/ч")
+    utils.info("Поточне поле успішно відформатовано")
     return true
 end
 
@@ -229,7 +229,7 @@ function M.flatten_field_globally()
 
     if count > 0 then
         M.is_changed = true
-        utils.info("Глобально відформатовано карток із заміною в/ч: " .. count)
+        utils.info("Глобально відформатовано карток: " .. count)
         return true
     else
         utils.info("Не знайдено карток для обробки")

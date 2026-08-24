@@ -43,15 +43,19 @@ return {
             })
 
             -- 3. Перенаправляємо стандартний vim.notify на двигун mini.notify
-            -- та збільшуємо час показу повідомлень (у мілісекундах)
-            -- 10000 мс = 10 секунд, 15000 мс = 15 секунд
+            -- 15000 = 15 секунд
             vim.notify = require("mini.notify").make_notify({
                 INFO  = { duration = 10000 },
-                WARN  = { duration = 10000 },
-                ERROR = { duration = 15000 },
+                WARN  = { duration = 15000 },
+                ERROR = { duration = 30000 },
             })
 
-            -- 3. Гарячі клавіші для буферів (виправлено "[b>" на "[b")
+            -- 4. Перевизначаємо підсвічування для зміненої вкладки в mini.tabline
+            -- Наприклад: зелений фон (#98c379) і чорний текст (#000000) для активної або неактивної вкладки
+            vim.api.nvim_set_hl(0, "MiniTablineModifiedCurrent", { fg = "#000000", bg = "#739313" })
+            vim.api.nvim_set_hl(0, "MiniTablineModifiedVisible", { fg = "#000000", bg = "#739313" })
+            vim.api.nvim_set_hl(0, "MiniTablineModifiedHidden",  { fg = "#739313", bg = "NONE", italic = true })
+            -- 5. Гарячі клавіші для буферів (виправлено "[b>" на "[b")
             vim.keymap.set("n", "]b", "<cmd>bnext<CR>", { desc = "Наступний буфер", silent = true })
             vim.keymap.set("n", "[b", "<cmd>bprevious<CR>", { desc = "Попередній буфер", silent = true })
             

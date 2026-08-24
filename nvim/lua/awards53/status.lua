@@ -150,7 +150,7 @@ function M.render()
         is_modified = true
     end
 
-    local mod_flag = is_modified and " [+]" or ""
+    local mod_flag = is_modified and "%#Awards53ChangedIndicatorKarta# [+]%#SLInfo# " or " "
     local bookmark_flag = state.has_bookmark() and " 🔖" or ""
 
     local card_info = string.format(
@@ -181,7 +181,7 @@ function M.render()
         "%#SLInfo# ",
         card_info,
         " ",
-
+        
         "%=",
 
         "%#SLInfoSep#",

@@ -13,6 +13,15 @@ vim.g.netrw_banner = 0
 -- Neovim підтримка української розкладки в Normal/Visual
 vim.opt.langmap = [[ЙQ,ЦW,УE,КR,ЕT,НY,ГU,ШI,ЩO,ЗP,Х{,Ї},ФA,ІS,ВD,АF,ПG,РH,ОJ,ЛK,ДL,Ж\:,Є\",ЯZ,ЧX,СC,МV,ИB,ТN,ЬM,Б\<,Ю\>,йq,цw,уe,кr,еt,нy,гu,шi,щo,зp,х[,ї],фa,іs,вd,аf,пg,рh,оj,лk,дl,ж\;,є\',яz,чx,сc,мv,иb,тn,ьm,б\,,ю.]]
 
+-- Автоматичне перетворення українських літер у командному рядку для збереження та виходу
+vim.cmd([[
+    cnoreabbrev ц w
+    cnoreabbrev Ц W
+    cnoreabbrev й q
+    cnoreabbrev Й Q
+    cnoreabbrev у e
+    cnoreabbrev У E
+]])
 
 -- =============================================================================
 -- OPTIONS

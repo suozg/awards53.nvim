@@ -41,24 +41,24 @@ function M.setup(opts)
     local function update_suffix_color()
         -- Отримуємо фінальні кольори групи CursorLine
         local hl = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
-        
         -- Конвертуємо числовий колір фону в HEX (якщо він є), інакше ставимо NONE
         local bg_color = hl.bg and string.format("#%06x", hl.bg) or "NONE"
-        
         -- Встановлюємо знайдений фон як колір тексту для кінцевого куточка
         vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { fg = bg_color, bg = "NONE" })
+        -- червоний колір для індікації змін картки
+        vim.api.nvim_set_hl(0, "Awards53ChangedIndicatorKarta", { fg = "#b13337", bg = bg_color, bold = true })
     end
-
-    -- Викликаємо функцію одразу 
+    
     update_suffix_color()
 
+    -- червоний колір для індікації змін поля
+    vim.api.nvim_set_hl(0, "Awards53ChangedIndicator", { fg = "#b13337", bold = true })
     -- Автоматично оновлюємо колір куточка при зміні теми (ColorScheme)
     vim.api.nvim_create_autocmd("ColorScheme", {
         pattern = "*",
         callback = update_suffix_color,
     })
-
-
+   
     -- 3. Реєстрація базових команд плагіна (Awards53, Awards53abbr)[cite: 9]
     require("awards53.commands").setup()
     

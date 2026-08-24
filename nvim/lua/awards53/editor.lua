@@ -70,7 +70,7 @@ local function setup_help_window()
 
         local cfg = require("awards53")
         local ns = cfg.ns_help or vim.api.nvim_create_namespace("awards53_editor_help")
-        -- Очищаємо попередні підсвічування на випадок оновлення і накладаємо єдиний стиль на кожен рядок
+        -- Очищаємо попередні підсвічування і накладаємо єдиний стиль на кожен рядок
         vim.api.nvim_buf_clear_namespace(M.help_buf, ns, 0, -1)
         for i = 0, #help_lines - 1 do
             vim.api.nvim_buf_add_highlight(M.help_buf, ns, "Awards53HelpText", i, 0, -1)
@@ -158,14 +158,14 @@ local function update_buffer_title(buf, card_idx, field_name)
     end
 
     local is_modified = vim.bo[buf].modified
-    local prefix = is_modified and "* " or ""
+    local prefix = is_modified and "[+] " or ""
     local buf_title = prefix .. base_title
 
     pcall(vim.api.nvim_buf_set_name, buf, buf_title)
 end
 
 -- -----------------------------------------------------------------------------
--- ГОЛОВНА ФУНКЦІЯ ВІДКРИТТЯ РЕДАКТОРА
+-- ГОЛОВНА ФУНКЦІЯ РЕДАКТОРА
 -- -----------------------------------------------------------------------------
 
 function M.open()
@@ -429,26 +429,23 @@ function M.render_status()
     local card_idx = vim.b[buf].card_idx or state.index()
     local field = vim.b[buf].field_name or state.field_name()
     local field_idx = vim.b[buf].field_idx or state.field_index()
-
-    local modified = vim.bo[buf].modified and " [+] " or " "
-
+    -- Використовуємо групу кольорів 
+    local modified = vim.bo[buf].modified and "%#Awards53ChangedIndicator# [+]%* " or " "
     local prev_hint = get_prev_field_preview(card_idx, field_idx)
     if prev_hint ~= "" then prev_hint = " │" .. prev_hint end
 
     return string.format(
-        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s%s%s │ :w - зберегти │ :q - зберегти та вийти, або :q! - вийти без збереження ",
+        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s%s%s │ :w - зберегти │ :q - зберегти та вийти, :q! - вийти",
         card_idx, state.count(), field, modified, prev_hint
     )
 end
 
 function M.render_help_status()
-    -- Знаходимо буфер активного редактора поля через поточне вікно або збережені редактори
     local current_buf = vim.api.nvim_get_current_buf()
-    -- Якщо фокус у вікні редактора поля, беремо його, інакше шукаємо серед відкритих
     local stats = get_text_stats(current_buf)
     
     local left = string.format(" 📊 Символів: %d  │  Слів: %d  │  Рядків: %d", stats.chars, stats.words, stats.lines)
-    local right = " * "
+    local right = "(c) suozg, 2026"
 
     local width = 80
     if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then

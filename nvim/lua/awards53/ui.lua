@@ -18,23 +18,39 @@ local syntax_group = "Awards53ActiveField"
 
 vim.cmd("highlight default link Awards53ActiveField CursorLine")
 
+
 local function apply_field_highlighting(buf) 
     vim.api.nvim_buf_clear_namespace(buf, NS_ID, 0, -1) 
     local line_count = vim.api.nvim_buf_line_count(buf)
     
+    local in_block = false
+
     for i = 0, line_count - 1 do
         local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1]
         
-        -- Якщо рядок містить наш маркер лінії
-        if line and line:find("~~~~") then
+        -- Перевіряємо початок блоку ([#])
+        local is_bracket_line = line and (line:find("^%s*%[") ~= nil)
+        -- Перевіряємо кінець блоку (. .)
+        local is_dot_line = line and (line:match("^%s*%.") ~= nil)
+
+        if is_bracket_line then
+            in_block = true
+        end
+
+        -- Якщо ми всередині блоку (або на одному з обмежувачів), підсвічуємо весь рядок
+        if in_block and line then
             vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
                 end_row = i,
                 end_col = #line,
                 hl_group = "Awards53Separator",
-                priority = 100,
+                priority = 100, 
             })
         end
-        
+
+        if is_dot_line then
+            in_block = false
+        end
+
         -- Підсвітка розділювача Поле 
         if line and line:match("󰓻") then
             local sep_len = #("")
@@ -49,12 +65,12 @@ local function apply_field_highlighting(buf)
             -- Визначаємо, де має закінчуватися базове тло
             local end_col = last_sep and (last_sep - 1) or #line
             
-            -- ШАР 1: Базове підсвічування (тепер НЕ до кінця вікна)
+            -- ШАР 1: Базове підсвічування 
             vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
                 end_row = i,
                 end_col = end_col,
                 hl_group = syntax_group,
-                hl_eol = false, -- Тло більше не тягнеться до правого краю
+                hl_eol = false, -- Тло не до правого краю
                 priority = 100,
             })
             
@@ -105,8 +121,9 @@ local function update_ui_buffer_title()
     if src_buf and vim.api.nvim_buf_is_valid(src_buf) and vim.bo[src_buf].modified then
         is_modified = true
     end
-
-    local title = is_modified and "* Awards53" or "Awards53"
+    -- Встановлюємо статус modified для буфера, щоб mini.tabline підхопив його
+    vim.bo[M.body_buf].modified = is_modified
+    local title = is_modified and "[+] Awards53" or "Awards53"
     pcall(vim.api.nvim_buf_set_name, M.body_buf, title)
 end
 
@@ -139,7 +156,6 @@ function M.redraw()
     end
 
     update_ui_buffer_title()
-    vim.bo[M.body_buf].modified = false
     vim.cmd("redrawstatus!")
 end
 
@@ -223,7 +239,7 @@ local function bind_keys()
         ["B"]   = { function() 
             if state.delete_field() then 
                 pcall(state.sync_to_disk) 
-                M.redraw() utils.info("Поле успішно видалено") 
+                M.redraw() utils.info("Поле видалено") 
             else utils.error("Не вдалося видалити поле") end 
         end, false }, 
 
@@ -313,10 +329,10 @@ function M.open()
                 state.is_changed = false
                 pcall(function() require("awards53.editor").mark_as_saved() end)
 
-                utils.info("Зміни успішно збережено в .org файл!")
+                utils.info("Зміни успішно збережено в файл!")
                 M.redraw()
             else
-                utils.warn("Не знайдено зв'язаного .org буфера для збереження.")
+                utils.warn("Не знайдено зв'язаного буфера для збереження.")
             end
         end
 
