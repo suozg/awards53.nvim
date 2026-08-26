@@ -18,15 +18,16 @@ return {
         version = false,
         event = { "BufReadPost", "BufNewFile" },
         config = function()
-            -- 1. Підключаємо модулі курсора та таблайну
+            -- Підключаємо модулі курсора та таблайну
             require("mini.cursorword").setup()
+            require("mini.surround").setup() -- модуль для керування лапками та дужками:
             
             require("mini.tabline").setup({
                 show_icons = true,
                 tabpage_section = "left",
             })
-
-            -- 2. Налаштовуємо вигляд mini.notify
+            
+            -- Налаштовуємо вигляд mini.notify
             require("mini.notify").setup({
                 content = {
                     -- Форматуємо текст сповіщення, додаючи іконку на початку
@@ -67,7 +68,7 @@ return {
                     }
                 end,
             })
-            -- 3. Перенаправляємо стандартний vim.notify на двигун mini.notify
+            -- Перенаправляємо стандартний vim.notify на двигун mini.notify
             -- 15000 = 15 секунд
             vim.notify = require("mini.notify").make_notify({
                 INFO  = { duration = 10000 },
@@ -75,12 +76,12 @@ return {
                 ERROR = { duration = 30000 },
             })
 
-            -- 4. Перевизначаємо підсвічування для зміненої вкладки в mini.tabline
+            -- Перевизначаємо підсвічування для зміненої вкладки в mini.tabline
             -- Наприклад: зелений фон (#98c379) і чорний текст (#000000) для активної або неактивної вкладки
             vim.api.nvim_set_hl(0, "MiniTablineModifiedCurrent", { fg = "#000000", bg = "#739313" })
             vim.api.nvim_set_hl(0, "MiniTablineModifiedVisible", { fg = "#000000", bg = "#739313" })
             vim.api.nvim_set_hl(0, "MiniTablineModifiedHidden",  { fg = "#739313", bg = "NONE", italic = true })
-            -- 5. Гарячі клавіші для буферів (виправлено "[b>" на "[b")
+            -- Гарячі клавіші для буферів (виправлено "[b>" на "[b")
             vim.keymap.set("n", "]b", "<cmd>bnext<CR>", { desc = "Наступний буфер", silent = true })
             vim.keymap.set("n", "[b", "<cmd>bprevious<CR>", { desc = "Попередній буфер", silent = true })
             

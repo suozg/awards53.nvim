@@ -82,8 +82,9 @@ local function toggle_lf()
 
             -- Очищаємо буфер термінала
             if lf_buf and vim.api.nvim_buf_is_valid(lf_buf) then
-                vim.api.nvim_buf_delete(lf_buf, { force = true })
+                vim.api.nvim_buf_delete(lf_buf, { force = vim.bo[lf_buf].buftype == "terminal" and true or { force = true} })
             end
+
             lf_win = nil
             lf_buf = nil
 

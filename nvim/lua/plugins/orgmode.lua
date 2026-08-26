@@ -37,7 +37,37 @@ return {
                 callback = function(event)
                     vim.schedule(function()
                         if vim.api.nvim_win_is_valid(0) then
-                            local help_text ="%#OrgHelpBar#  [oct] Нове / [t] TODO/DONE / [o$] В архів / [oid] Дедлайн / [ois] Розклад / [oaa] Agenda"
+                            local help_text = table.concat({
+                                    "%#OrgHelpText#  ",
+
+                                    "%#OrgHelpKey# [oct] ",
+                                    "%#OrgHelpText#Нове ",
+
+                                    "%#OrgHelpSep#",
+
+                                    "%#OrgHelpKey# [t] ",
+                                    "%#OrgHelpText#TODO/DONE ",
+
+                                    "%#OrgHelpSep#",
+
+                                    "%#OrgHelpKey# [o$] ",
+                                    "%#OrgHelpText#Архів ",
+
+                                    "%#OrgHelpSep#",
+
+                                    "%#OrgHelpKey# [oid] ",
+                                    "%#OrgHelpText#Дедлайн ",
+
+                                    "%#OrgHelpSep#",
+
+                                    "%#OrgHelpKey# [ois] ",
+                                    "%#OrgHelpText#Розклад ",
+
+                                    "%#OrgHelpSep#",
+
+                                    "%#OrgHelpKey# [oaa] ",
+                                    "%#OrgHelpText#Agenda",
+                                })
                             vim.wo[0].winbar = help_text
                         end
                     end)

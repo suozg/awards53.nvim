@@ -52,7 +52,7 @@ opt.updatetime = 300
 opt.conceallevel = 2
 opt.concealcursor = 'nc'
 opt.whichwrap:append("<,>,[,],h,l")
-
+opt.laststatus = 3  -- лише один рядок стану для всього екрану
 -- бекап
 opt.undofile = true
 opt.undodir = vim.fn.expand("~/.local/state/nvim/undo")

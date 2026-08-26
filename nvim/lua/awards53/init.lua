@@ -100,7 +100,7 @@ function M.setup(opts)
                     
                     -- Якщо входжень більше 1, запитуємо користувача
                     if count > 1 then
-                        vim.notify("Невірна структура даних - декілька входжень AWARDS53!", vim.log.levels.WARN)
+                        vim.notify("Невірна структура даних - декілька входжень AWARDS53!", vim.log.levels.ERROR)
                         local choice = vim.fn.input("Виправити структуру даних? [1-так, 2-ні]: ")
 
                         if choice == "1" then
