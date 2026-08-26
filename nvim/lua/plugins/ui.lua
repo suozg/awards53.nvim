@@ -28,20 +28,45 @@ return {
 
             -- 2. Налаштовуємо вигляд mini.notify
             require("mini.notify").setup({
+                content = {
+                    -- Форматуємо текст сповіщення, додаючи іконку на початку
+                    format = function(notif)
+                        local icons = {
+                            ERROR = '❌ ',
+                            WARN  = '⚠️ ',
+                            INFO  = '💡 ',
+                        }
+                        local icon = icons[notif.level] or '💡 '
+                        
+                        return icon .. notif.msg
+                    end,
+                },
                 window = {
                     max_width_share = 0.382,
                     winblend = 25,
                     config = function()
                         return {
-                            anchor = "SW", -- місце на екрані
+                            anchor = "SW",
                             relative = "editor",
-                            row = vim.o.lines - 2, -- Відступ 1 рядок знизу (враховуючи командний рядок)
-                            col = 1,                 -- Відступ 1 стовпчик зліва
+                            row = vim.o.lines - 2,
+                            col = 1,
+                            border = 'single',
+                            title = '', -- заголовок вікна рамки
+                            title_pos = 'left',
                         }
                     end,
                 },
+                -- Налаштування анімації/таймінгів 
+                animation = function(notif)
+                    -- Повертаємо таблицю з нульовою затримкою або вимикаємо ефекти
+                    return {
+                        {
+                            opacity = 100,
+                            precision = 100,
+                        }
+                    }
+                end,
             })
-
             -- 3. Перенаправляємо стандартний vim.notify на двигун mini.notify
             -- 15000 = 15 секунд
             vim.notify = require("mini.notify").make_notify({
