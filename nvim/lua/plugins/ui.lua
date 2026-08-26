@@ -26,17 +26,17 @@ return {
                 tabpage_section = "left",
             })
 
-            -- 2. Налаштовуємо mini.notify для виведення в правому верхньому кутку
+            -- 2. Налаштовуємо вигляд mini.notify
             require("mini.notify").setup({
                 window = {
                     max_width_share = 0.382,
                     winblend = 25,
                     config = function()
                         return {
-                            anchor = "NE", -- північний схід (правий верхній кут)
+                            anchor = "SW", -- місце на екрані
                             relative = "editor",
-                            row = 1,       -- відступ зверху
-                            col = vim.o.columns - 1, -- відступ справа
+                            row = vim.o.lines - 2, -- Відступ 1 рядок знизу (враховуючи командний рядок)
+                            col = 1,                 -- Відступ 1 стовпчик зліва
                         }
                     end,
                 },

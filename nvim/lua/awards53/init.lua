@@ -89,6 +89,43 @@ function M.setup(opts)
                 -- А. Перевірка на базу даних Awards53
                 ----------------------------------------------------------------
                 if lines[1] and utils.is_section(lines[1]) then
+                    -- Отримуємо всі рядки поточного буфера для перевірки кількості входжень
+                    local all_lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+                    local count = 0
+                    for _, line in ipairs(all_lines) do
+                        if utils.is_section(line) then
+                            count = count + 1
+                        end
+                    end
+                    
+                    -- Якщо входжень більше 1, запитуємо користувача
+                    if count > 1 then
+                        vim.notify("Невірна структура даних - декілька входжень AWARDS53!", vim.log.levels.WARN)
+                        local choice = vim.fn.input("Виправити структуру даних? [1-так, 2-ні]: ")
+
+                        if choice == "1" then
+                            local found_first = false
+                            for i, line in ipairs(all_lines) do
+                                if utils.is_section(line) then
+                                    if not found_first then
+                                        -- Перший залишаємо незмінним, бо він потрібен для ідентифікації бази
+                                        found_first = true
+                                    else
+                                        -- Усі наступні "зайві" заголовки замінюємо на роздільник карток
+                                        all_lines[i] = "==="
+                                    end
+                                end
+                            end
+                            vim.api.nvim_buf_set_lines(args.buf, 0, -1, false, all_lines)
+                            vim.cmd("redraw")
+                            vim.notify("Структуру виправлено (зайві заголовки замінено на ===)", vim.log.levels.INFO)
+                        elseif choice == "2" then
+                            -- Перемикаємо фокус у буфер, де відкритий оригінальний файл
+                            vim.cmd("b #")
+                            return
+                        end
+                    end
+
                     vim.api.nvim_set_current_buf(args.buf)
                     vim.cmd("Awards53")
                     
@@ -107,7 +144,7 @@ function M.setup(opts)
                 end
 
                 ----------------------------------------------------------------
-                -- Б. Перевірка на документ Documents53 (Org-mode)[cite: 23]
+                -- Б. Перевірка на документ Documents53 (Org-mode)
                 ----------------------------------------------------------------
                 local is_doc53 = false
                 for _, line in ipairs(lines) do
@@ -118,12 +155,12 @@ function M.setup(opts)
                 end
 
                 if is_doc53 then
-                    -- Вмикаємо захист службових полів[cite: 26]
+                    -- Вмикаємо захист службових полів
                     pcall(function()
                         require("awards53.documents.editor").protect_tech_lines(args.buf)
                     end)
                     
-                    -- Підключаємо локальні аббревіатури для буфера[cite: 6, 26]
+                    -- Підключаємо локальні аббревіатури для буфера
                     pcall(function()
                         require("awards53.abbreviations").register_buffer_abbreviations(args.buf)
                     end)
