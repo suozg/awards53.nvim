@@ -37,13 +37,21 @@ return {
                 callback = function(event)
                     vim.schedule(function()
                         if vim.api.nvim_win_is_valid(0) then
-                            local help_text ="%#OrgHelpBar#  [oct] Нове | [t] TODO/DONE | [o$] В архів | [oid] Дедлайн | [ois] Розклад | [oaa] Agenda"
+                            local help_text ="%#OrgHelpBar#  [oct] Нове / [t] TODO/DONE / [o$] В архів / [oid] Дедлайн / [ois] Розклад / [oaa] Agenda"
                             vim.wo[0].winbar = help_text
                         end
                     end)
                 end,
             })
-
+            vim.api.nvim_create_autocmd("FileType", {
+                pattern = "orgagenda",
+                callback = function()
+                    vim.schedule(function()
+                        -- Робимо кілька кроків вниз від початку буфера, щоб стати на реальну задачу
+                        pcall(vim.cmd, "normal! gg 1j")
+                    end)
+                end,
+            })
         end,
     },
 
