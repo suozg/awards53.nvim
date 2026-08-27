@@ -427,6 +427,9 @@ function M.open()
     vim.wo[M.body_win].statusline = "%!v:lua.require'awards53.status'.render()"
     local wo = vim.wo[M.body_win]
     wo.number, wo.relativenumber, wo.signcolumn, wo.colorcolumn = false, false, "no", "" 
+    -- Перенос рядків у картці Awards53
+    wo.wrap = true
+    wo.linebreak = true
     M.redraw() 
 end
 

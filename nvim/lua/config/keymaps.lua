@@ -100,6 +100,7 @@ end
 
 -- Гарячі клавіші
 vim.keymap.set({'n', 't'}, '<leader>e', toggle_lf, { desc = "Toggle LF" })
+vim.keymap.set({'n', 't'}, '<leader>у', toggle_lf, { desc = "Toggle LF" })
 
 -- Навігація вгору / вниз по Ctrl+h
 vim.keymap.set('t', '<C-h>', function()

@@ -5,11 +5,13 @@ local group = vim.api.nvim_create_augroup("UserConfig", { clear = true })
 
 vim.api.nvim_create_autocmd("FileType", {
     group = group,
-    pattern = { "org", "text" },
+pattern = { "org", "text" },
     callback = function()
+        vim.opt_local.wrap = true
+
         vim.opt_local.spell = true
         vim.opt_local.spelllang = { "uk", "en_us" }
-        
+
         -- Увімкнути класичний синтаксис і змусити його перевіряти весь текст
         vim.cmd("syntax on")
         vim.cmd("syntax spell toplevel")

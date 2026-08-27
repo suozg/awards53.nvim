@@ -4,6 +4,9 @@ local ns_id = vim.api.nvim_create_namespace("doc53_protection")
 
 function M.open(file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
+    -- перенос рядків
+    vim.opt_local.wrap = true
+    vim.opt_local.linebreak = true
     vim.opt_local.conceallevel = 2
     
     local buf = vim.api.nvim_get_current_buf()

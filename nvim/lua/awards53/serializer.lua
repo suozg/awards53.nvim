@@ -27,9 +27,9 @@ function M.build(data)
             table.insert(out, cfg.config.record_separator)
         end
     end
-
+    -- заміна кавички-лапок 
     for i, line in ipairs(out) do
-        out[i] = line:gsub("«", '"'):gsub("»", '"')
+        out[i] = line:gsub("«", '"'):gsub("»", '"'):gsub("`", "'")
     end
 
     return out

@@ -38,7 +38,8 @@ vim.api.nvim_create_autocmd({ "ColorScheme", "VimEnter" }, {
                 bg = '#3c3836' 
             })
             -- затемнення неактивного буфера
-            vim.api.nvim_set_hl(0, "DimWindow", { bg = "#333333" })
+            vim.api.nvim_set_hl(0, "DimWindow", { bg = "#3c3836" })
+
             -- orgmode help bar
             vim.api.nvim_set_hl(0, "OrgHelpKey", {
                 fg = "#d79921",

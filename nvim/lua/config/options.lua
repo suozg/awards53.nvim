@@ -51,6 +51,7 @@ opt.foldenable = true
 opt.updatetime = 300
 opt.conceallevel = 2
 opt.concealcursor = 'nc'
+opt.wrap = false -- отключаем переноси строк
 opt.whichwrap:append("<,>,[,],h,l")
 opt.laststatus = 3  -- лише один рядок стану для всього екрану
 -- бекап
