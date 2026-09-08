@@ -21,7 +21,8 @@ pattern = { "org", "text" },
 vim.api.nvim_create_autocmd("TextYankPost", {
     group = group,
     callback = function()
-        vim.highlight.on_yank({ timeout = 200 })
+        -- Безпечний виклик нової або старої функції підсвічування янку
+        pcall(vim.hl.on_yank, { timeout = 200 })
     end,
 })
 

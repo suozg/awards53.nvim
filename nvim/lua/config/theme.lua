@@ -1,10 +1,13 @@
+-- theme.lua
+-- шлях до файлу стану теми
+local theme_file = vim.fn.expand("~/.lightmode")
+
 -- Застосовуємо тему gruvbox
 vim.cmd("colorscheme gruvbox")
 
 vim.api.nvim_create_autocmd({ "ColorScheme", "VimEnter" }, {
     pattern = "*",
     callback = function()
-        local theme_file = vim.fn.expand("~/.lightmode")
         -- Визначаємо колір на основі наявності файлу ~/.lightmode
         if vim.fn.filereadable(theme_file) == 1 then
             vim.o.background = "light"
@@ -75,3 +78,25 @@ vim.api.nvim_create_autocmd({ "WinEnter", "BufEnter" }, {
     end,
 })
 
+-- Фоновий таймер для оновлення теми на льоту
+local uv = vim.uv or vim.loop
+local timer = uv.new_timer()
+timer:start(1000, 2000, vim.schedule_wrap(function()
+    local current_state = vim.fn.filereadable(theme_file) == 1
+    
+    if vim.g.is_light_mode ~= current_state then
+        vim.g.is_light_mode = current_state
+        
+        -- Явно змінюємо фон перед викликом теми, щоб редактор перебудував буфери
+        if current_state then
+            vim.o.background = "light"
+        else
+            vim.o.background = "dark"
+        end
+        
+        vim.cmd("colorscheme gruvbox")
+        vim.cmd("syntax sync fromstart")
+        vim.cmd("redrawstatus!")
+        vim.cmd("redraw!")
+    end
+end))
