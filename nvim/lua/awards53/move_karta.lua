@@ -1,3 +1,5 @@
+-- move_karta.lua
+
 local M = {}
 
 local state = require("awards53.state")
@@ -57,7 +59,6 @@ function M.move_to_fork()
 
     local target_data = parser.parse(target_block)
 
-    -- 💥 КЛЮЧОВЕ ВИПРАВЛЕННЯ:
     -- Якщо target_data не має заголовків або вони неповні — об'єднуємо їх із заголовками нашої картки
     if #target_data.headers == 0 then
         target_data.headers = current_headers

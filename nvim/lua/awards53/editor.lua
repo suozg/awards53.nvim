@@ -1,3 +1,5 @@
+-- editor.lua
+--
 local M = {}
 
 local state = require("awards53.state")
@@ -70,7 +72,6 @@ local function setup_help_window()
 
         local cfg = require("awards53")
         local ns = cfg.ns_help or vim.api.nvim_create_namespace("awards53_editor_help")
-        -- Очищаємо попередні підсвічування і накладаємо єдиний стиль на кожен рядок
         vim.api.nvim_buf_clear_namespace(M.help_buf, ns, 0, -1)
         for i = 0, #help_lines - 1 do
             vim.api.nvim_buf_add_highlight(M.help_buf, ns, "Awards53HelpText", i, 0, -1)
@@ -157,7 +158,12 @@ local function update_buffer_title(buf, card_idx, field_name)
         base_title = string.format("Картка %d (поле %s)", card_idx, field_name)
     end
 
-    local is_modified = vim.bo[buf].modified
+    -- Перевіряємо зміну локального буфера або глобального стану
+    local is_modified = vim.bo[buf].modified or state.is_changed
+    
+    -- mini.tabline / mini.statusline реагують безпосередньо на vim.bo.modified
+    vim.bo[buf].modified = is_modified
+
     local prefix = is_modified and "[+] " or ""
     local buf_title = prefix .. base_title
 
@@ -251,7 +257,7 @@ function M.open()
         local target_buf = buf
         if not target_buf or not vim.api.nvim_buf_is_valid(target_buf) then return end
 
-        local is_modified = vim.bo[target_buf].modified
+        local is_modified = vim.bo[target_buf].modified or state.is_changed
 
         if is_modified and not opts.bang then
             local context_info = get_editor_context_name(card_idx, field)
@@ -333,7 +339,7 @@ function M.open()
 
     vim.api.nvim_create_autocmd("BufWipeout", {
         buffer = buf,
-group = group,
+        group = group,
         callback = function()
             close_help_window()
             state.opened_editors[key] = nil
@@ -401,11 +407,10 @@ function M.save_core(buf)
         table.remove(clean_lines)
     end
 
+    state.snapshot()
+
     record[field] = clean_lines
     vim.bo[buf].modified = false
-
-    update_buffer_title(buf, card_idx, field)
-    vim.cmd("redrawstatus")
 
     local src = state.get_source_buffer()
     if src and vim.api.nvim_buf_is_valid(src) then
@@ -420,7 +425,13 @@ function M.save_core(buf)
             vim.bo[src].modified = false
         end)
     end
+
+    state.mark_as_clean()
+    
+    update_buffer_title(buf, card_idx, field)
+    vim.cmd("redrawstatus!")
 end
+
 
 function M.render_status()
     local buf = vim.api.nvim_get_current_buf()
@@ -429,8 +440,9 @@ function M.render_status()
     local card_idx = vim.b[buf].card_idx or state.index()
     local field = vim.b[buf].field_name or state.field_name()
     local field_idx = vim.b[buf].field_idx or state.field_index()
-    -- Використовуємо групу кольорів 
-    local modified = vim.bo[buf].modified and "%#Awards53ChangedIndicator# [+]%* " or " "
+    
+    local is_dirty = vim.bo[buf].modified or state.is_changed
+    local modified = is_dirty and "%#Awards53ChangedIndicator# [+]%* " or " "
     local prev_hint = get_prev_field_preview(card_idx, field_idx)
     if prev_hint ~= "" then prev_hint = " │" .. prev_hint end
 

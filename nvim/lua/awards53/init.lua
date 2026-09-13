@@ -28,7 +28,6 @@ function M.setup(opts)
     vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "NONE" })
     vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "NONE", bold = false })
     vim.api.nvim_set_hl(0, "Awards53RnokppError", { fg = "#FFFFFF", bg = "#FF0000", bold = true })
-    vim.cmd("highlight default link Awards53ActiveField CursorLine")
     -- група для початку рядка ""Поле"" (зелений колір)
     vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { fg = "#ffffff", bg = "#739313", bold = true }) 
     -- Прозора група для приховування курсора в нормальному режимі

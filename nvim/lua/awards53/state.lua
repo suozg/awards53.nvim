@@ -1,3 +1,8 @@
+--  state.lua (Ядро керування)
+--│   │   └── Функції: Зберігають інформацію про відкриті записи та закладки, ведуть 
+--│   │                історію змін для скасування дій (undo), а також відповідають за 
+--│   │                навігацію (перехід до наступної/попередньої картки).
+
 local M = {}
 
 local cfg = require("awards53") 
@@ -14,13 +19,89 @@ M.field = 1
 M.last_field = 1 
 M.current_mode = "NORMAL" 
 M.clipboard = nil 
-M.undo = nil 
 M.source_buffer = nil 
 M.source_win = nil 
 M.last_search = nil 
 M.last_search_field = nil
 M.opened_editors = {}
 M.bookmarks = {} -- Таблиця для закладок карток
+M.undo_stack = {}
+M.redo_stack = {}
+M.saved_undo_index = 0 -- Показник версії, яка збережена на диску
+
+local function update_is_changed_status()
+    -- Якщо поточна глибина undo_stack дорівнює версії на диску — змін немає
+    M.is_changed = (#M.undo_stack ~= M.saved_undo_index)
+end
+
+function M.mark_as_clean()
+    M.saved_undo_index = #M.undo_stack
+    M.is_changed = false
+end
+
+function M.snapshot()
+    table.insert(M.undo_stack, {
+        records = vim.deepcopy(M.records),
+        headers = vim.deepcopy(M.headers),
+        current = M.current,
+        field = M.field,
+        bookmarks = vim.deepcopy(M.bookmarks),
+    })
+    M.redo_stack = {}
+    update_is_changed_status()
+end
+
+function M.undo_last()
+    if #M.undo_stack == 0 then 
+        utils.warn("Немає дій для скасування (Undo)")
+        return false 
+    end 
+
+    table.insert(M.redo_stack, {
+        records = vim.deepcopy(M.records),
+        headers = vim.deepcopy(M.headers),
+        current = M.current,
+        field = M.field,
+        bookmarks = vim.deepcopy(M.bookmarks),
+    })
+
+    local last_state = table.remove(M.undo_stack)
+    M.records = last_state.records
+    M.headers = last_state.headers
+    M.current = last_state.current
+    M.field = last_state.field
+    M.bookmarks = last_state.bookmarks
+
+    update_is_changed_status()
+    M.renumber() 
+    return true
+end
+
+function M.redo_last()
+    if #M.redo_stack == 0 then 
+        utils.warn("Немає дій для повтору (Redo)")
+        return false 
+    end 
+
+    table.insert(M.undo_stack, {
+        records = vim.deepcopy(M.records),
+        headers = vim.deepcopy(M.headers),
+        current = M.current,
+        field = M.field,
+        bookmarks = vim.deepcopy(M.bookmarks),
+    })
+
+    local next_state = table.remove(M.redo_stack)
+    M.records = next_state.records
+    M.headers = next_state.headers
+    M.current = next_state.current
+    M.field = next_state.field
+    M.bookmarks = next_state.bookmarks
+
+    update_is_changed_status()
+    M.renumber()
+    return true
+end
 
 -- Швидкі inline-геттери/сеттери
 function M.set_source_win(win) M.source_win = win end 
@@ -93,30 +174,6 @@ end
 -- Оновлення порядкових номерів
 function M.renumber()
     for i, rec in ipairs(M.records) do rec.N = i end 
-end
-
--- Снапшот та Undo механізм
-function M.snapshot()
-    M.undo = {
-        records = vim.deepcopy(M.records),
-        current = M.current,
-        field = M.field,
-        is_changed = M.is_changed, 
-        bookmarks = vim.deepcopy(M.bookmarks),
-    }
-end
-
-function M.undo_last()
-    if not M.undo then return false end 
-
-    M.records, M.current, M.field, M.is_changed, M.bookmarks = M.undo.records, M.undo.current, M.undo.field, M.undo.is_changed, M.undo.bookmarks
-    M.undo = nil 
-    M.renumber() 
-
-    if not M.is_changed and M.source_buffer and vim.api.nvim_buf_is_valid(M.source_buffer) then 
-        vim.bo[M.source_buffer].modified = false 
-    end
-    return true
 end
 
 -- схлопування порожніх полів по всьому файлу 
@@ -498,7 +555,10 @@ function M.delete_field()
 end
 
 function M.sync_to_disk()
-    require("awards53.commands").sync_org_buffer()
+    local ok, commands = pcall(require, "awards53.commands")
+    if ok and type(commands.sync_org_buffer) == "function" then
+        pcall(commands.sync_org_buffer)
+    end
 end
 
 return M

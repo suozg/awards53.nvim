@@ -1,3 +1,5 @@
+-- ui.lua
+--
 local M = {}
 
 local header = require("awards53.header") 
@@ -16,8 +18,41 @@ local cfg = require("awards53")
 local NS_ID = cfg.ns_fields or vim.api.nvim_create_namespace("awards53_fields") 
 local syntax_group = "Awards53ActiveField" 
 
-vim.cmd("highlight default link Awards53ActiveField CursorLine")
+-- Оголошуємо дефолтні кольори для інтерфейсу картки.
+-- Вказуємо default = true, щоб користувач міг перевизначити їх у своєму theme.lua за бажанням.
+local function setup_awards_highlights()
+    -- Базове підсвічування поля (за замовчуванням як CursorLine)
+    vim.cmd("highlight default link Awards53ActiveField CursorLine")
+    
+    -- Лінійки-розділювачі та рамки блоків ([#] ... .)
+    vim.api.nvim_set_hl(0, "Awards53Separator", { link = "Comment", default = true })
+    
+    -- Префікс активного поля (зелений/акцентний блок)
+    vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { link = "String", default = true })
+    
+    -- Перший куточок-розділювач 
+    vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { link = "Title", default = true })
+    
+    -- Кінцевий куточок 
+    vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { link = "NonText", default = true })
+    
+    -- Помилка РНОКПП (червоний колір)
+    vim.api.nvim_set_hl(0, "Awards53RnokppError", { link = "ErrorMsg", default = true })
+end
 
+-- Ініціалізуємо кольори при першому завантаженні модуля
+setup_awards_highlights()
+
+-- При будь-якій зміні теми (colorscheme gruvbox) відновлюємо кольори та перемальовуємо UI
+vim.api.nvim_create_autocmd("ColorScheme", {
+    group = vim.api.nvim_create_augroup("Awards53HighlightsAutoRestore", { clear = true }),
+    callback = function()
+        setup_awards_highlights()
+        if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
+            M.redraw()
+        end
+    end,
+})
 
 local function apply_field_highlighting(buf) 
     vim.api.nvim_buf_clear_namespace(buf, NS_ID, 0, -1) 
@@ -127,7 +162,25 @@ local function update_ui_buffer_title()
     pcall(vim.api.nvim_buf_set_name, M.body_buf, title)
 end
 
-function M.redraw() 
+-- Функція для оновлення кольору/підсвітки заголовка вікна
+local function update_header_highlight()
+    if state.is_changed then
+        -- Якщо є зміни: встановлюємо яскраве підсвічування (наприклад, WarningMsg або спеціальну групу)
+        vim.cmd("highlight! link OrgCardHeader WarningMsg")
+    else
+        -- Якщо змін немає: повертаємо стандартне підсвічування (наприклад, Title або Normal)
+        vim.cmd("highlight! link OrgCardHeader Title")
+    end
+end
+
+function M.redraw()
+    
+    -- 1. Синхронізуємо прапор модифікації поточного буфера з глобальним станом
+    vim.bo.modified = state.is_changed
+
+    -- 2. Оновлюємо колір заголовка
+    update_header_highlight()
+    
     if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then return end 
 
     local current_win = vim.api.nvim_get_current_win()
@@ -149,7 +202,7 @@ function M.redraw()
     utils.highlight_rnokpp_in_buf(M.body_buf) 
     apply_field_highlighting(M.body_buf) 
 
-    if is_editing_card_buffer and saved_cursor then
+if is_editing_card_buffer and saved_cursor then
         local line_count = vim.api.nvim_buf_line_count(M.body_buf)
         if saved_cursor[1] > line_count then saved_cursor[1] = line_count end
         pcall(vim.api.nvim_win_set_cursor, M.body_win, saved_cursor)
@@ -238,7 +291,7 @@ local function bind_keys()
         ["F-"]  = { function() if state.new_field("-") then M.redraw() utils.info("Додано нове поле №" .. state.field_name() .. " із '-'") end end, false }, 
         ["B"]   = { function() 
             if state.delete_field() then 
-                pcall(state.sync_to_disk) 
+                state.sync_to_disk() 
                 M.redraw() utils.info("Поле видалено") 
             else utils.error("Не вдалося видалити поле") end 
         end, false }, 
@@ -249,9 +302,23 @@ local function bind_keys()
         end, true }, 
         
         ["yy"]  = { function() state.copy_current() utils.info("Картку скопійовано") end, false }, 
+
         ["p"]   = { function() return state.paste_after() end, true }, 
-        ["u"]   = { function() return state.undo_last() end, true }, 
+
+        ["u"] = { function() 
+            if state.undo_last() then 
+                M.redraw() 
+            end 
+        end, false },
+
+        ["<C-r>"] = { function() 
+            if state.redo_last() then 
+                M.redraw() 
+            end 
+        end, false },
+
         ["dp"]  = { function() move_karta.move_to_fork() end, true },
+
         ["/"]   = { function() 
             vim.ui.input({ prompt = "Пошук " .. cfg.config.default_sort .. ": " }, function(t) if t and t ~= "" then state.find(t, 1) M.redraw() end end) 
         end, false }, 
@@ -318,7 +385,7 @@ function M.open()
         local function save_card_action()
             local src_buf = state.get_source_buffer()
             if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
-                pcall(state.sync_to_disk)
+                state.sync_to_disk()
 
                 if vim.bo[src_buf].modified then
                     vim.api.nvim_buf_call(src_buf, function()
@@ -414,7 +481,7 @@ function M.open()
                 if state.is_changed then 
                     local org_buf = state.get_source_buffer() 
                     if org_buf and vim.api.nvim_buf_is_valid(org_buf) then 
-                        pcall(state.sync_to_disk) 
+                        state.sync_to_disk() 
                     end 
                 end 
                 M.body_buf, M.body_win = nil, nil 

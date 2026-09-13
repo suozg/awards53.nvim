@@ -1,8 +1,10 @@
+-- actions.lua
+
 local M = {}
 
 local state = require("awards53.state") 
 local utils = require("awards53.utils") 
-local replacement = "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу Оперативного командування \"Схід\" Сухопутних військ Збройних Cил України" 
+local replacement = "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу оперативного командування \"Схід\" Сухопутних військ Збройних Cил України" 
 
 -- ====================================================================
 -- Спільне ядро для форматування тексту однієї картки (публічне)
@@ -58,7 +60,7 @@ end
 -- ====================================================================
 function M.sort_officers_first()
     local cfg = require("awards53") 
-    local field = "2" or cfg.config.default_sort 
+    local field = cfg.config.default_sort or "2"
     
     if not state.records or #state.records == 0 then 
         utils.warn("Список записів порожній") 
