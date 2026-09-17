@@ -37,7 +37,7 @@ local function setup_awards_highlights()
     vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { link = "NonText", default = true })
     
     -- Помилка РНОКПП (червоний колір)
-    vim.api.nvim_set_hl(0, "Awards53RnokppError", { link = "ErrorMsg", default = true })
+    vim.api.nvim_set_hl(0, "Awards53RnokppError", { link = "SpellBad", default = true })
 end
 
 -- Ініціалізуємо кольори при першому завантаженні модуля
@@ -396,7 +396,7 @@ function M.open()
                 state.is_changed = false
                 pcall(function() require("awards53.editor").mark_as_saved() end)
 
-                utils.info("Зміни успішно збережено в файл!")
+                --utils.info("Зміни успішно збережено в файл!")
                 M.redraw()
             else
                 utils.warn("Не знайдено зв'язаного буфера для збереження.")

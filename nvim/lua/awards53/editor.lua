@@ -11,7 +11,7 @@ M.help_buf = nil -- Буфер підказок
 M.help_win = nil -- Вікно підказок внизу
 
 local help_lines = {
-    " Поле: R/X - Автоформат [тут/всюди], S/Е - Склеїти рядки [тут/всюди] || Дані: f/a - Шукати [файл/sql*], c - Скинути пароль",
+    " Поле: R/X - Автоформат [тут/всюди], S/Е - Сплющити рядки [тут/всюди] || Дані: f/a - Шукати [файл/sql*], c - Скинути пароль",
 }
 
 -- -----------------------------------------------------------------------------
@@ -242,7 +242,7 @@ function M.open()
     local function save_and_notify()
         M.save_core(buf)
         utils.highlight_rnokpp_in_buf(buf)
-        utils.info("Зміни збережено в org-файл!")
+        --utils.info("Зміни збережено в org-файл!")
     end
 
     vim.api.nvim_create_autocmd("BufWriteCmd", { 

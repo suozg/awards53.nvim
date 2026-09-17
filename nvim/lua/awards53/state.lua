@@ -246,14 +246,7 @@ local function process_flat_field(record, key)
     local combined = type(val) == "table" and table.concat(val, " ") or tostring(val)
     combined = combined:gsub("%s+", " ")
 
-    local actions = require("awards53.actions")
-    local formatted = actions.format_text_core(combined)
-
-    if formatted then
-        return vim.split(formatted, "\n", { trimempty = false })
-    else
-        return { combined }
-    end
+    return { combined }
 end
 
 function M.flatten_current_field()
@@ -267,7 +260,7 @@ function M.flatten_current_field()
     M.snapshot()
     record[key] = result
     M.is_changed = true
-    utils.info("Поточне поле успішно відформатовано")
+    utils.info("Усі рядки в полі сплющено")
     return true
 end
 
@@ -286,7 +279,7 @@ function M.flatten_field_globally()
 
     if count > 0 then
         M.is_changed = true
-        utils.info("Глобально відформатовано карток: " .. count)
+        utils.info(count .. " карток сплющено")
         return true
     else
         utils.info("Не знайдено карток для обробки")
