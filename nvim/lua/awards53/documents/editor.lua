@@ -1,218 +1,295 @@
 local M = {}
 
-local ns_id = vim.api.nvim_create_namespace("doc53_protection")
+local PROTECTED_META = {
+    ODT_STYLES_FILE = true,
+    DOC53_REQUIRED = true,
+}
+
+local ns_placeholders = vim.api.nvim_create_namespace("doc53_placeholders")
+
+local function is_doc53_line(line)
+    return line:match("^#%+[A-Z0-9_]+:%s?.*$") ~= nil
+end
+
+local function parse_doc53_line(line)
+    local key, value = line:match("^#%+([A-Z0-9_]+):%s?(.*)$")
+    if not key then
+        return nil, nil
+    end
+    return "#+" .. key .. ": ", value or ""
+end
+
+local function is_fully_protected_line(line)
+    local key = line:match("^#%+([A-Z0-9_]+):")
+    if not key then
+        return false
+    end
+    return PROTECTED_META[key] == true
+end
+
+local function restore_row(buf, row, prefix, value)
+    local restored = prefix .. value
+    vim.api.nvim_buf_set_lines(buf, row - 1, row, false, { restored })
+    vim.api.nvim_win_set_cursor(0, { row, #prefix })
+end
+
+-- Віртуальний текст (підказки), який не записується у файл
+local function update_placeholders(buf)
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+
+    vim.api.nvim_buf_clear_namespace(buf, ns_placeholders, 0, -1)
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+    for row_idx, line in ipairs(lines) do
+        local key, value = line:match("^#%+([A-Z0-9_]+):%s?(.*)$")
+        
+        if key == "HEAD" and (value == nil or value == "") then
+            vim.api.nvim_buf_set_extmark(buf, ns_placeholders, row_idx - 1, #line, {
+                -- 1. Підказка безпосередньо в рядку :
+                virt_text = { { " [ АДРЕСАТ ]", "Comment" } },
+                virt_text_pos = "eol", -- додається в кінець рядка #+BODY:
+            })
+        end
+
+        if key == "BODY" and (value == nil or value == "") then
+            vim.api.nvim_buf_set_extmark(buf, ns_placeholders, row_idx - 1, #line, {
+                -- 1. Підказка безпосередньо в рядку #+BODY:
+                virt_text = { { " [ ТЕКСТ ДОКУМЕНТА ]", "Comment" } },
+                virt_text_pos = "eol", -- додається в кінець рядка #+BODY:
+                virt_lines = {
+                    { { " Якщо треба нове поле: у шаблон .org додайте, наприклад, #+NUMBER:", "Comment" } },
+                    { { " а у шаблон .odt додайте __NUMBER__ на початку потрібного абзацу.", "Comment" } },
+                },
+                virt_lines_above = false, -- показувати нижче рядка #+BODY:
+            })
+        end
+        
+    end
+end
+
+local function hide_protected_lines(buf)
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+
+    for row_idx, line in ipairs(lines) do
+        if is_fully_protected_line(line) then
+            local ns = vim.api.nvim_create_namespace("doc53_hidden_" .. tostring(buf) .. "_" .. row_idx)
+
+            pcall(vim.api.nvim_buf_set_extmark, buf, ns, row_idx - 1, 0, {
+                end_col = #line,
+                conceal = " ",
+                hl_group = "Conceal",
+            })
+        end
+    end
+end
+
+local function protect_line(buf, row)
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+
+    local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
+
+    -- Повністю захищені метадані
+    if is_fully_protected_line(line) then
+        local key = line:match("^#%+([A-Z0-9_]+):")
+        if key then
+            local prefix = "#+" .. key .. ": "
+            local value = line:sub(#prefix + 1)
+            local restored = prefix .. value
+
+            if line ~= restored then
+                vim.api.nvim_buf_set_lines(buf, row - 1, row, false, { restored })
+            end
+
+            local line_count = vim.api.nvim_buf_line_count(buf)
+            if row >= line_count then
+                vim.api.nvim_win_set_cursor(0, { math.max(1, line_count), 0 })
+            else
+                vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
+            end
+        end
+        return
+    end
+
+    -- Для частково захищених #+FIELD:
+    if not is_doc53_line(line) then
+        return
+    end
+
+    local prefix, value = parse_doc53_line(line)
+    if not prefix then
+        return
+    end
+
+    local prefix_len = #prefix
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local col = cursor[2]
+
+    if line:sub(1, prefix_len) ~= prefix then
+        restore_row(buf, row, prefix, value)
+        return
+    end
+
+    -- Не дозволяємо курсору ставати всередину або перед префіксом
+    if col < prefix_len then
+        vim.api.nvim_win_set_cursor(0, { row, prefix_len })
+    end
+end
+
+local function protect_doc53_buffer(buf)
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+
+    vim.wo[0].conceallevel = 2
+    vim.wo[0].concealcursor = "niv"
+
+    hide_protected_lines(buf)
+    update_placeholders(buf)
+
+    local group_name = "Awards53DocsProtection_" .. tostring(buf)
+    local group = vim.api.nvim_create_augroup(group_name, { clear = true })
+
+    vim.api.nvim_create_autocmd({
+        "CursorMoved",
+        "CursorMovedI",
+        "TextChangedI",
+        "TextChanged",
+        "InsertEnter",
+        "InsertLeave",
+        "BufWinEnter",
+        "WinEnter",
+    }, {
+        group = group,
+        buffer = buf,
+        callback = function()
+            local row = vim.api.nvim_win_get_cursor(0)[1]
+            hide_protected_lines(buf)
+            protect_line(buf, row)
+            update_placeholders(buf)
+        end,
+    })
+
+    local function on_protected_metadata_row()
+        local row = vim.api.nvim_win_get_cursor(0)[1]
+        local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
+
+        if not is_fully_protected_line(line) then
+            return false
+        end
+
+        vim.api.nvim_echo({
+            { "Documents53: це службове поле заблоковано", "WarningMsg" },
+        }, false, {})
+
+        return true
+    end
+
+    -- Перехоплення клавіш входу в режим редагування (щоб курсор не стрибав на '0' при клавіші 'I')
+    for _, key in ipairs({ "i", "I", "a", "A" }) do
+        vim.keymap.set("n", key, function()
+            if on_protected_metadata_row() then
+                return
+            end
+
+            local row = vim.api.nvim_win_get_cursor(0)[1]
+            local line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
+
+            if is_doc53_line(line) then
+                local prefix = parse_doc53_line(line)
+                if prefix then
+                    local prefix_len = #prefix
+                    local cursor = vim.api.nvim_win_get_cursor(0)
+
+                    if key == "I" or cursor[2] < prefix_len then
+                        vim.api.nvim_win_set_cursor(0, { row, prefix_len })
+                        vim.cmd("startinsert")
+                        return
+                    end
+                end
+            end
+
+            vim.api.nvim_feedkeys(
+                vim.api.nvim_replace_termcodes(key, true, false, true),
+                "n",
+                false
+            )
+        end, { buffer = buf, silent = true, noremap = true })
+    end
+
+    -- Блокування інших небезпечних дій
+    for _, key in ipairs({
+        "o", "O", "R", "r", "x", "X", "D", "C", "s", "S", "J", "dd", "cc", "yy", "p", "P"
+    }) do
+        vim.keymap.set("n", key, function()
+            if on_protected_metadata_row() then
+                return
+            end
+
+            vim.api.nvim_feedkeys(
+                vim.api.nvim_replace_termcodes(key, true, false, true),
+                "n",
+                false
+            )
+        end, { buffer = buf, silent = true, noremap = true })
+    end
+end
+
+-- Встановлення курсора на #+BODY: та активація режиму редагування
+local function focus_body_and_insert(buf)
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    for row_idx, line in ipairs(lines) do
+        local key = line:match("^#%+([A-Z0-9_]+):")
+        if key == "BODY" then
+            local prefix = "#+BODY: "
+            vim.api.nvim_win_set_cursor(0, { row_idx, #prefix })
+            vim.cmd("startinsert!")
+            return
+        end
+    end
+end
 
 function M.open(file)
     vim.cmd("edit " .. vim.fn.fnameescape(file))
-    -- перенос рядків
+    local buf = vim.api.nvim_get_current_buf()
+
     vim.opt_local.wrap = true
     vim.opt_local.linebreak = true
     vim.opt_local.conceallevel = 2
-    
-    local buf = vim.api.nvim_get_current_buf()
-    
-    -- підключаємо розумні абревіатури для цього буфера документів
-    pcall(function()
-        require("awards53.abbreviations").register_buffer_abbreviations(buf)
+    vim.opt_local.concealcursor = "niv"
+
+    vim.bo[buf].modifiable = true
+    vim.bo[buf].bufhidden = "hide"
+    vim.bo[buf].swapfile = false
+    vim.bo[buf].filetype = "org"
+
+    protect_doc53_buffer(buf)
+
+    -- Автоматично переходимо на #+BODY: та вмикаємо Insert mode
+    vim.schedule(function()
+        focus_body_and_insert(buf)
     end)
-    
-    M.protect_tech_lines(buf)
+
+    vim.notify(
+        "Documents53: службові рядки приховані і заблоковані.",
+        vim.log.levels.INFO
+    )
 end
 
 function M.protect_tech_lines(buf)
     buf = buf or vim.api.nvim_get_current_buf()
-    
-    local initial_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local expected_structure = {}
-
-    for i, line in ipairs(initial_lines) do
-        local full_prefix = line:match("^#%+[A-Z0-9_]+:%s*")
-        local meta_prefix = line:match("^#%+ODT_STYLES_FILE:") or line:match("^#%+DOC53_REQUIRED:")
-
-        if meta_prefix then
-            expected_structure[i] = {
-                prefix = meta_prefix,
-                is_meta = true,
-                full_original = line
-            }
-        elseif full_prefix then
-            expected_structure[i] = {
-                prefix = full_prefix,
-                is_meta = false,
-                full_original = line
-            }
-        end
+    if not vim.api.nvim_buf_is_valid(buf) then
+        return
     end
 
-    local function apply_highlight()
-        if not vim.api.nvim_buf_is_valid(buf) then return end
-        vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
-        
-        local actual_buf_line_count = vim.api.nvim_buf_line_count(buf)
-        local current_buf_lines = vim.api.nvim_buf_get_lines(buf, 0, actual_buf_line_count, false)
-
-        for row_idx, data in pairs(expected_structure) do
-            if row_idx <= actual_buf_line_count then
-                local line_idx = row_idx - 1
-                local real_line = current_buf_lines[row_idx] or ""
-                local real_len = #real_line
-
-                if vim.startswith(real_line, data.prefix) or data.is_meta then
-                    if data.is_meta then
-                        if real_len > 0 then
-                            pcall(vim.api.nvim_buf_set_extmark, buf, ns_id, line_idx, 0, {
-                                end_col = real_len,
-                                conceal = "",
-                                hl_group = "NonText"
-                            })
-                        end
-                    else
-                        local prefix_len = #data.prefix
-                        if real_len >= prefix_len then
-                            pcall(vim.api.nvim_buf_set_extmark, buf, ns_id, line_idx, 0, {
-                                end_col = 2,
-                                conceal = "", 
-                                hl_group = "NonText"
-                            })
-                            
-                            pcall(vim.api.nvim_buf_set_extmark, buf, ns_id, line_idx, prefix_len - 2, {
-                                end_col = prefix_len,
-                                conceal = " ", 
-                                hl_group = "NonText"
-                            })
-                            
-                            vim.api.nvim_buf_add_highlight(buf, ns_id, "Type", line_idx, 2, prefix_len - 2)
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    apply_highlight()
-
-    -- Захист курсора від заходження на префікс
-    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
-        buffer = buf,
-        callback = function()
-            local cursor = vim.api.nvim_win_get_cursor(0)
-            local row = cursor[1]
-            local col = cursor[2]
-            local data = expected_structure[row]
-
-            if data and not data.is_meta then
-                local real_line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
-                if vim.startswith(real_line, data.prefix) then
-                    local prefix_len = #data.prefix
-                    if col < prefix_len then
-                        vim.api.nvim_win_set_cursor(0, {row, prefix_len})
-                    end
-                end
-            end
-        end,
-    })
-
-    -- Інтелектуальний Enter
-    vim.keymap.set('i', '<CR>', function()
-        local cursor = vim.api.nvim_win_get_cursor(0)
-        local row = cursor[1]
-        local col = cursor[2]
-        local data = expected_structure[row]
-
-        if data and not data.is_meta then
-            local real_line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
-            if vim.startswith(real_line, data.prefix) then
-                local prefix_len = #data.prefix
-                if col < prefix_len then
-                    vim.api.nvim_win_set_cursor(0, {row, prefix_len})
-                    col = prefix_len
-                end
-                
-                if col == prefix_len then
-                    local user_text = real_line:sub(prefix_len + 1)
-                    vim.api.nvim_buf_set_lines(buf, row - 1, row, false, { data.prefix, user_text })
-                    vim.api.nvim_win_set_cursor(0, {row + 1, #data.prefix})
-                    apply_highlight()
-                    return
-                end
-            end
-        end
-        
-        return vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<CR>", true, false, true), "n", false)
-    end, { buffer = buf, expr = false })
-
-    -- Безпечне очищення підказок при вході в режим вставки
-    local edited_rows = {}
-    vim.api.nvim_create_autocmd("BufEnter", {
-        buffer = buf,
-callback = function()
-            edited_rows = {}
-        end,
-    })
-
-    vim.api.nvim_create_autocmd("InsertEnter", {
-        buffer = buf,
-        callback = function()
-            local cursor = vim.api.nvim_win_get_cursor(0)
-            local row = cursor[1]
-            local data = expected_structure[row]
-
-            if data and not data.is_meta and not edited_rows[row] then
-                local real_line = vim.api.nvim_buf_get_lines(buf, row - 1, row, false)[1] or ""
-                local prefix = data.prefix
-                
-                if #real_line > #prefix then
-                    vim.api.nvim_buf_set_text(buf, row - 1, #prefix, row - 1, #real_line, { "" })
-                    vim.api.nvim_win_set_cursor(0, { row, #prefix })
-                end
-                
-                edited_rows[row] = true
-            end
-        end,
-    })
-    
-    -- логіка відновлення мета-рядків
-    vim.api.nvim_buf_attach(buf, false, {
-        on_bytes = function(_, _, _, start_row, _, _, _, _, _, _, _, _)
-            vim.schedule(function()
-                if not vim.api.nvim_buf_is_valid(buf) then return end
-                
-                local all_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-
-                for row_idx, data in pairs(expected_structure) do
-                    if data.is_meta then
-                        local current_line = all_lines[row_idx] or ""
-                        -- якщо рядок стерли або змінили
-                        if current_line ~= data.full_original then
-                            -- перевіряємо чи він є десь у файлі
-                            local found = false
-                            for _, l in ipairs(all_lines) do
-                                if l == data.full_original then
-                                    found = true
-                                    break
-                                end
-                            end
-                            -- якщо немає — вставляємо саме на його позицію
-                            if not found then
-                                vim.api.nvim_buf_set_lines(buf, row_idx-1, row_idx-1, false, { data.full_original })
-                            end
-                        end
-                    else
-                        -- контроль звичайних префіксів
-                        local current_line = all_lines[row_idx] or ""
-                        if not vim.startswith(current_line, data.prefix) then
-                            local user_text = current_line
-                            vim.api.nvim_buf_set_lines(buf, row_idx-1, row_idx, false, { data.prefix .. user_text })
-                        end
-                    end
-                end
-
-                apply_highlight()
-            end)
-        end
-    })
-
-
+    protect_doc53_buffer(buf)
 end
 
 return M
