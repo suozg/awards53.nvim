@@ -1,7 +1,7 @@
 -- state.lua (Ядро керування)
 --│   └── Функції: Зберігають інформацію про відкриті записи та закладки,
 --                делегують історію змін (undo/redo) нативному буферу Neovim,
---                навігацію та блокування між процесами/терміналами.
+--                навігацію та стан поточного буфера.
 
 local M = {}
 
@@ -9,9 +9,6 @@ local cfg = require("awards53")
 local utils = require("awards53.utils")
 local serializer = require("awards53.serializer")
 local parser = require("awards53.parser")
-
-local uv = vim.loop or vim.uv
-local lock_file_path = vim.fn.stdpath("data") .. "/awards53.lock"
 
 -- Початковий стан
 M.is_changed = false
@@ -29,70 +26,39 @@ M.last_search_field = nil
 M.opened_editors = {}
 M.bookmarks = {}
 
--- Ідентифікатори станів
-M.next_state_id = 0
-M.current_state_id = 0
-M.saved_state_id = 0
+-- ==========================================
+-- Синхронізація стану змін (Undo/Redo status)
+-- ==========================================
 
+--- Синхронізує прапорець M.is_changed з нативним станом буфера Neovim
 local function update_is_changed_status()
-    M.is_changed = M.current_state_id ~= M.saved_state_id
+    if not M.source_buffer or not vim.api.nvim_buf_is_valid(M.source_buffer) then
+        M.is_changed = false
+        return
+    end
+
+    -- Використовуємо нативний буферний прапорець 'modified'
+    M.is_changed = vim.api.nvim_buf_get_option(M.source_buffer, "modified")
 end
 
+--- Позначає поточний стан у буфері як збережений (чистий)
 function M.mark_as_clean()
-    M.saved_state_id = M.current_state_id
+    if M.source_buffer and vim.api.nvim_buf_is_valid(M.source_buffer) then
+        vim.api.nvim_buf_set_option(M.source_buffer, "modified", false)
+    end
     M.is_changed = false
 end
 
 -- ==========================================
--- Межпроцесне блокування (Lock-файл для терміналів)
+-- Перевірка внутрішнього стану
 -- ==========================================
 
 function M.is_busy()
-    -- 1. Перевірка всередині поточного процесу Neovim
     if M.source_buffer ~= nil and vim.api.nvim_buf_is_valid(M.source_buffer) then
         return true
     end
 
-    -- 2. Перевірка між РІЗНИМИ терміналами через lock-файл
-    local _, stat = uv.fs_stat(lock_file_path)
-    if stat then
-        local f = io.open(lock_file_path, "r")
-        if f then
-            local pid = tonumber(f:read("*l"))
-            f:close()
-
-            if pid then
-                -- Перевіряємо, чи живий процесс PID у системі
-                local is_alive = (vim.fn.jobwait({ vim.fn.jobstart({ "kill", "-0", tostring(pid) }) }, 500)[1] == 0)
-                if is_alive then
-                    return true -- Процес існує в іншому терміналі
-                else
-                    -- Процес завершився аварійно, підчищаємо старий lock
-                    os.remove(lock_file_path)
-                end
-            end
-        end
-    end
-
     return false
-end
-
-function M.acquire_lock(buf)
-    M.source_buffer = buf
-
-    local pid = vim.fn.getpid()
-    local f = io.open(lock_file_path, "w")
-    if f then
-        f:write(tostring(pid) .. "\n")
-        f:close()
-    end
-end
-
-function M.release_lock()
-    M.source_buffer = nil
-    M.source_win = nil
-
-    os.remove(lock_file_path)
 end
 
 -- ==========================================
@@ -142,8 +108,8 @@ function M.reload_from_buffer()
 end
 
 function M.snapshot()
-    M.next_state_id = M.next_state_id + 1
-    M.current_state_id = M.next_state_id
+    -- Снапшот виконується автоматично через модифікацію джерельного буфера.
+    -- Оновлюємо статус змін відповідно до буфера.
     update_is_changed_status()
 end
 
@@ -269,11 +235,11 @@ function M.get_source_win()
 end
 
 function M.set_source_buffer(buf)
+    M.source_buffer = buf
     if buf == nil then
-        M.release_lock()
-    else
-        M.acquire_lock(buf)
+        M.source_win = nil
     end
+    update_is_changed_status()
 end
 
 function M.get_source_buffer()
@@ -334,7 +300,6 @@ function M.toggle_bookmark()
         utils.info("Встановлено закладку на картку № " .. idx)
     end
 
-    M.is_changed = true
     return true
 end
 
@@ -464,7 +429,6 @@ function M.collapse_empty_fields_globally()
     end
 
     M.last_field = M.field
-    M.is_changed = true
 
     M.sync_to_disk()
     utils.info(string.format("Успішно видалено порожні поля. Максимум полів: %d", max_non_empty_index))
@@ -492,7 +456,6 @@ function M.flatten_current_field()
 
     M.snapshot()
     record[key] = result
-    M.is_changed = true
 
     M.sync_to_disk()
     utils.info("Усі рядки в полі сплющено")
@@ -524,7 +487,6 @@ function M.flatten_field_globally()
         end
     end
 
-    M.is_changed = true
     M.sync_to_disk()
 
     utils.info(count .. " карток сплющено")
@@ -651,7 +613,6 @@ function M.paste_after()
     table.insert(M.records, insert_pos, vim.deepcopy(parsed.records[1]))
 
     M.current = insert_pos
-    M.is_changed = true
 
     M.renumber()
     M.sync_to_disk()
@@ -673,7 +634,6 @@ function M.move_field_content_up()
 
     M.field = idx - 1
     M.last_field = M.field
-    M.is_changed = true
 
     M.sync_to_disk()
     return true
@@ -693,7 +653,6 @@ function M.move_field_content_down()
 
     M.field = idx + 1
     M.last_field = M.field
-    M.is_changed = true
 
     M.sync_to_disk()
     return true
@@ -712,7 +671,6 @@ function M.move_field_globally_up()
 
     M.field = idx - 1
     M.last_field = M.field
-    M.is_changed = true
 
     M.sync_to_disk()
     utils.info("Поле переміщено вгору у всіх картках!")
@@ -733,7 +691,6 @@ function M.move_field_globally_down()
 
     M.field = idx + 1
     M.last_field = M.field
-    M.is_changed = true
 
     M.sync_to_disk()
     utils.info("Поле переміщено вниз у всіх картках!")
@@ -752,11 +709,7 @@ function M.set(data)
     M.field = math.max(1, math.min(M.field or 1, math.max(1, #M.headers)))
     M.current_mode = "NORMAL"
 
-    M.next_state_id = M.next_state_id + 1
-    M.current_state_id = M.next_state_id
-    M.saved_state_id = M.current_state_id
-
-    M.is_changed = false
+    M.mark_as_clean()
     M.renumber()
 end
 
@@ -799,7 +752,6 @@ function M.sort_by(field)
     end)
 
     M.renumber()
-    M.is_changed = true
     M.sync_to_disk()
 end
 
@@ -816,7 +768,6 @@ function M.new_record()
 
     M.current = #M.records
     M.field = 1
-    M.is_changed = true
 
     M.sync_to_disk()
 end
@@ -829,7 +780,6 @@ function M.delete_current()
 
     M.current = math.min(M.current, #M.records)
     M.field = 1
-    M.is_changed = true
 
     M.renumber()
     M.sync_to_disk()
@@ -856,7 +806,6 @@ function M.new_field(default_value)
 
     M.field = insert_idx
     M.last_field = M.field
-    M.is_changed = true
 
     M.sync_to_disk()
     return true
@@ -881,7 +830,6 @@ function M.delete_field()
 
     M.field = 1
     M.last_field = 1
-    M.is_changed = true
 
     M.sync_to_disk()
     return true
@@ -892,6 +840,7 @@ function M.sync_to_disk()
     if ok and type(commands.sync_org_buffer) == "function" then
         pcall(commands.sync_org_buffer)
     end
+    update_is_changed_status()
 end
 
 return M

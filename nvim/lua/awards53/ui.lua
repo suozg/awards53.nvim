@@ -250,68 +250,184 @@ function M.open_undotree_window()
 
     local diff_ns = vim.api.nvim_create_namespace("Awards53UndoDiff")
 
-    local function update_preview()
-        local cursor = vim.api.nvim_win_get_cursor(list_win)
-        local selected_seq = seq_map[cursor[1]]
-        local src_buf = state.get_source_buffer()
+    -- Фіксуємо стан документа на момент відкриття Undotree.
+    -- Під час перегляду історії він не повинен змінюватися.
+    local src_buf = state.get_source_buffer()
 
-        if not (selected_seq and src_buf and vim.api.nvim_buf_is_valid(src_buf)) then
+    if not src_buf or not vim.api.nvim_buf_is_valid(src_buf) then
+        return
+    end
+
+    local base_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
+
+    local base_tree = vim.api.nvim_buf_call(src_buf, function()
+        return vim.fn.undotree()
+    end)
+
+    local base_seq = base_tree.seq_cur
+
+    -- Кеш історичних станів.
+    local target_cache = {}
+
+    -- Кеш уже готового diff.
+    local diff_cache = {}
+
+    local function update_preview()
+        if not vim.api.nvim_win_is_valid(list_win)
+            or not vim.api.nvim_buf_is_valid(preview_buf) then
             return
         end
 
-        local current_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-        local target_lines = {}
+        local cursor = vim.api.nvim_win_get_cursor(list_win)
+        local selected_seq = seq_map[cursor[1]]
 
-        vim.api.nvim_buf_call(src_buf, function()
-            vim.cmd("silent! undo " .. selected_seq)
-            target_lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-        end)
+        if not selected_seq then
+            return
+        end
 
-        local current_text = table.concat(current_lines, "\n")
-        local target_text = table.concat(target_lines, "\n")
+        -- Якщо цей diff вже рахували — просто показуємо його.
+        local diff_lines = diff_cache[selected_seq]
 
-        local diff_result = vim.diff(target_text, current_text, {
-            algorithm = "myers",
-            ctxlen = 3,
-        })
+        if not diff_lines then
+            local target_lines = target_cache[selected_seq]
 
-        local diff_lines = {}
-        if diff_result == "" then
-            diff_lines = { "  (Змін немає / Поточний стан)" }
-        else
-            diff_lines = vim.split(diff_result, "\n", { trimempty = true })
+            -- Поточний стан.
+            if selected_seq == base_seq then
+                target_lines = base_lines
+            end
+
+            -- Історичний стан ще не кешований.
+            if not target_lines then
+                local current_tree = vim.api.nvim_buf_call(src_buf, function()
+                    return vim.fn.undotree()
+                end)
+
+                local current_seq = current_tree.seq_cur
+
+                local ok, result = pcall(function()
+                    vim.api.nvim_buf_call(src_buf, function()
+                        vim.cmd("noautocmd silent undo " .. selected_seq)
+                    end)
+
+                    local lines = vim.api.nvim_buf_get_lines(
+                        src_buf,
+                        0,
+                        -1,
+                        false
+                    )
+
+                    -- Повертаємо документ у стан,
+                    -- у якому він був до перегляду історії.
+                    vim.api.nvim_buf_call(src_buf, function()
+                        vim.cmd("noautocmd silent undo " .. current_seq)
+                    end)
+
+                    return lines
+                end)
+
+                if not ok then
+                    return
+                end
+
+                target_lines = result
+                target_cache[selected_seq] = target_lines
+            end
+
+            local current_text = table.concat(base_lines, "\n")
+            local target_text = table.concat(target_lines, "\n")
+
+            local diff_result = vim.diff(target_text, current_text, {
+                algorithm = "myers",
+                ctxlen = 3,
+            })
+
+            if diff_result == "" then
+                diff_lines = {
+                    "  (Змін немає / Поточний стан)"
+                }
+            else
+                diff_lines = vim.split(diff_result, "\n", {
+                    trimempty = true,
+                })
+            end
+
+            diff_cache[selected_seq] = diff_lines
         end
 
         vim.bo[preview_buf].modifiable = true
-        vim.api.nvim_buf_set_lines(preview_buf, 0, -1, false, diff_lines)
+
+        vim.api.nvim_buf_set_lines(
+            preview_buf,
+            0,
+            -1,
+            false,
+            diff_lines
+        )
+
         vim.bo[preview_buf].modifiable = false
 
-        vim.api.nvim_buf_clear_namespace(preview_buf, diff_ns, 0, -1)
+        vim.api.nvim_buf_clear_namespace(
+            preview_buf,
+            diff_ns,
+            0,
+            -1
+        )
+
         for i, line in ipairs(diff_lines) do
             local line_idx = i - 1
-            if line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
-                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
-                    end_row = line_idx,
-                    end_col = #line,
-                    hl_group = "DiffAdd",
-                })
-            elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
-                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
-                    end_row = line_idx,
-                    end_col = #line,
-                    hl_group = "DiffDelete",
-                })
+
+            if line:sub(1, 1) == "+"
+                and not line:match("^%+%+%+") then
+
+                vim.api.nvim_buf_set_extmark(
+                    preview_buf,
+                    diff_ns,
+                    line_idx,
+                    0,
+                    {
+                        end_row = line_idx,
+                        end_col = #line,
+                        hl_group = "DiffAdd",
+                    }
+                )
+
+            elseif line:sub(1, 1) == "-"
+                and not line:match("^%-%-%-") then
+
+                vim.api.nvim_buf_set_extmark(
+                    preview_buf,
+                    diff_ns,
+                    line_idx,
+                    0,
+                    {
+                        end_row = line_idx,
+                        end_col = #line,
+                        hl_group = "DiffDelete",
+                    }
+                )
+
             elseif line:match("^@@") then
-                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
-                    end_row = line_idx,
-                    end_col = #line,
-                    hl_group = "DiffLine",
-                })
+
+                vim.api.nvim_buf_set_extmark(
+                    preview_buf,
+                    diff_ns,
+                    line_idx,
+                    0,
+                    {
+                        end_row = line_idx,
+                        end_col = #line,
+                        hl_group = "DiffLine",
+                    }
+                )
             end
         end
     end
 
-    local augroup = vim.api.nvim_create_augroup("Awards53UndoDiffPreview", { clear = true })
+    local augroup = vim.api.nvim_create_augroup(
+        "Awards53UndoDiffPreview",
+        { clear = true }
+    )
+
     vim.api.nvim_create_autocmd("CursorMoved", {
         group = augroup,
         buffer = list_buf,
@@ -320,6 +436,7 @@ function M.open_undotree_window()
 
     update_preview()
 
+    
     local close_windows = function()
         pcall(vim.api.nvim_del_augroup_by_name, "Awards53UndoDiffPreview")
         if list_win and vim.api.nvim_win_is_valid(list_win) then

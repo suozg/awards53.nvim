@@ -129,11 +129,12 @@ local function open_cards()
     ui.open()
 end
 
+
 function M.sync_org_buffer()
     local buf = state.get_source_buffer()
 
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
-        return
+        return false
     end
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -141,29 +142,65 @@ function M.sync_org_buffer()
 
     if not first then
         utils.error("Розділ " .. cfg.config.section .. " не знайдено")
-        return
+        return false
     end
 
     local out = serializer.build(state.data())
 
     local old_modifiable = vim.bo[buf].modifiable
     vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, first, last, false, out)
+
+    local ok, err = pcall(
+        vim.api.nvim_buf_set_lines,
+        buf,
+        first,
+        last,
+        false,
+        out
+    )
+
     vim.bo[buf].modifiable = old_modifiable
+
+    if not ok then
+        utils.error("Помилка синхронізації: " .. tostring(err))
+        return false
+    end
+
+    return true
 end
 
 function M.save_cards()
-    M.sync_org_buffer()
+    if not M.sync_org_buffer() then
+        return false
+    end
 
     local buf = state.get_source_buffer()
 
-    if buf and vim.api.nvim_buf_is_valid(buf) then
-        vim.api.nvim_buf_call(buf, function()
-            vim.cmd("silent! write")
-        end)
-        state.mark_as_clean()
-        utils.info("Збережено на диск")
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+        utils.error("Буфер для збереження недоступний")
+        return false
     end
+
+    local ok, err = pcall(function()
+        vim.api.nvim_buf_call(buf, function()
+            vim.cmd("write")
+        end)
+    end)
+
+    if not ok then
+        utils.error("Помилка збереження: " .. tostring(err))
+        return false
+    end
+
+    if vim.bo[buf].modified then
+        utils.error("Файл не був записаний на диск")
+        return false
+    end
+
+    state.mark_as_clean()
+    utils.info("Збережено на диск")
+
+    return true
 end
 
 function M.setup()
