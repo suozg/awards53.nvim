@@ -18,22 +18,9 @@ local cfg = require("awards53")
 local NS_ID = cfg.ns_fields or vim.api.nvim_create_namespace("awards53_fields")
 local syntax_group = "Awards53ActiveField"
 
--- Налаштування кольорів та підсвічування
-local function setup_awards_highlights()
-    vim.cmd("highlight default link Awards53ActiveField CursorLine")
-    vim.api.nvim_set_hl(0, "Awards53Separator", { link = "Comment", default = true })
-    vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { link = "String", default = true })
-    vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { link = "Title", default = true })
-    vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { link = "NonText", default = true })
-    vim.api.nvim_set_hl(0, "Awards53RnokppError", { link = "SpellBad", default = true })
-end
-
-setup_awards_highlights()
-
 vim.api.nvim_create_autocmd("ColorScheme", {
     group = vim.api.nvim_create_augroup("Awards53HighlightsAutoRestore", { clear = true }),
     callback = function()
-        setup_awards_highlights()
         if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
             M.redraw()
         end

@@ -90,15 +90,16 @@ function M.setup(opts)
     M.ns_rnokpp = vim.api.nvim_create_namespace("awards53_rnokpp")
 
     local function setup_highlights()
+        vim.cmd("highlight default link Awards53ActiveField CursorLine")
         vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "NONE" })
         vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "NONE", bold = false })
-        vim.api.nvim_set_hl(0, "Awards53RnokppError", { fg = "#FFFFFF", bg = "#FF0000", bold = true })
+        vim.api.nvim_set_hl(0, "Awards53RnokppError", { link = "SpellBad", default = true })
         vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { fg = "#ffffff", bg = "#739313", bold = true })
         vim.api.nvim_set_hl(0, "Awards53HiddenCursor", { blend = 100, nocombine = true })
-        vim.api.nvim_set_hl(0, "Awards53Separator", { link = "Comment" })
         vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { fg = "#739313" })
         vim.api.nvim_set_hl(0, "Awards53ChangedIndicator", { fg = "#b13337", bold = true })
-
+        vim.api.nvim_set_hl(0, "Awards53Separator", { link = "Comment", default = true })
+        
         local hl = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
         local bg_color = hl.bg and string.format("#%06x", hl.bg) or "NONE"
 
