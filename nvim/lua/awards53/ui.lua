@@ -212,6 +212,183 @@ if is_editing_card_buffer and saved_cursor then
     vim.cmd("redrawstatus!")
 end
 
+
+-- Відкриття розширеного вікна перегляду Undotree з генерацією DIFF (порівнянням змін)
+function M.open_undotree_window()
+    local entries = state.get_undo_list()
+
+    if #entries == 0 then
+        utils.info("Історія дій порожня")
+        return
+    end
+
+    local list_lines = {}
+    local seq_map = {}
+
+    for idx, entry in ipairs(entries) do
+        local mark = entry.is_current and "➔ " or "  "
+        local line = string.format("%s[%d] %s", mark, entry.seq, entry.time)
+        table.insert(list_lines, line)
+        seq_map[idx] = entry.seq
+    end
+
+    -- Буфер для списку кроків
+    local list_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(list_buf, 0, -1, false, list_lines)
+
+    -- Буфер для прев'ю / diff
+    local preview_buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[preview_buf].filetype = "diff"
+
+    local total_width = math.min(vim.o.columns - 6, 110)
+    local list_width = 24
+    local preview_width = total_width - list_width - 3
+    local height = math.min(#list_lines + 4, 20)
+
+    local row = math.floor((vim.o.lines - height) / 2)
+    local col = math.floor((vim.o.columns - total_width) / 2)
+
+    -- Ліве вікно (Список кроків)
+    local list_win = vim.api.nvim_open_win(list_buf, true, {
+        relative = "editor",
+        width = list_width,
+        height = height,
+        row = row,
+        col = col,
+        style = "minimal",
+        border = "rounded",
+        title = " Історія (U) ",
+        title_pos = "center",
+    })
+
+    -- Праве вікно (Порівняння змін / Diff)
+    local preview_win = vim.api.nvim_open_win(preview_buf, false, {
+        relative = "editor",
+        width = preview_width,
+        height = height,
+        row = row,
+        col = col + list_width + 2,
+        style = "minimal",
+        border = "rounded",
+        title = " Різниця змін ",
+        title_pos = "center",
+    })
+
+    vim.bo[list_buf].buftype = "nofile"
+    vim.bo[list_buf].modifiable = false
+    vim.bo[preview_buf].buftype = "nofile"
+
+    local diff_ns = vim.api.nvim_create_namespace("Awards53UndoDiff")
+
+    -- Функція генерації Diff між поточним станом та обраним seq
+    local function update_preview()
+        local cursor = vim.api.nvim_win_get_cursor(list_win)
+        local selected_seq = seq_map[cursor[1]]
+
+        if not (selected_seq and state.source_buffer and vim.api.nvim_buf_is_valid(state.source_buffer)) then
+            return
+        end
+
+        -- 1. Беремо поточний текст із буфера
+        local current_lines = vim.api.nvim_buf_get_lines(state.source_buffer, 0, -1, false)
+
+        -- 2. Тимчасово переходимо до обраного seq і зчитуємо старий текст
+        local target_lines = {}
+        vim.api.nvim_buf_call(state.source_buffer, function()
+            vim.cmd("silent! undo " .. selected_seq)
+            target_lines = vim.api.nvim_buf_get_lines(state.source_buffer, 0, -1, false)
+        end)
+
+        -- Всі процедури виконуються миттєво і повертають користувача назад до поточного тексту
+        local current_text = table.concat(current_lines, "\n")
+        local target_text = table.concat(target_lines, "\n")
+
+        -- 3. Генеруємо уніфікований Diff через нативний vim.diff()
+        local diff_result = vim.diff(target_text, current_text, {
+            algorithm = "myers",
+            ctxlen = 3, -- показуємо по 3 суміжні рядки навколо зміни для контексту
+        })
+
+        local diff_lines = {}
+        if diff_result == "" then
+            diff_lines = { "  (Змін немає / Поточний стан)" }
+        else
+            diff_lines = vim.split(diff_result, "\n", { trimempty = true })
+        end
+
+        -- 4. Оновлюємо вміст правого буфера
+        vim.bo[preview_buf].modifiable = true
+        vim.api.nvim_buf_set_lines(preview_buf, 0, -1, false, diff_lines)
+        vim.bo[preview_buf].modifiable = false
+
+        -- 5. Застосовуємо кольорову підсвітку для рядків Diff
+        vim.api.nvim_buf_clear_namespace(preview_buf, diff_ns, 0, -1)
+        for i, line in ipairs(diff_lines) do
+            local line_idx = i - 1
+            if line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
+                -- Додані рядки (Зелений)
+                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
+                    end_row = line_idx,
+                    end_col = #line,
+                    hl_group = "DiffAdd",
+                })
+            elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
+                -- Видалені рядки (Червоний)
+                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
+                    end_row = line_idx,
+                    end_col = #line,
+                    hl_group = "DiffDelete",
+                })
+            elseif line:match("^@@") then
+                -- Заголовки блоків змін (Блакитний / Жовтий)
+                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
+                    end_row = line_idx,
+                    end_col = #line,
+                    hl_group = "DiffLine",
+                })
+            end
+        end
+    end
+
+    -- Автоматичний виклик при русі курсора
+    local augroup = vim.api.nvim_create_augroup("Awards53UndoDiffPreview", { clear = true })
+    vim.api.nvim_create_autocmd("CursorMoved", {
+        group = augroup,
+        buffer = list_buf,
+        callback = update_preview,
+    })
+
+    -- Первинний виклик для підсвічування
+    update_preview()
+
+    local close_windows = function()
+        pcall(vim.api.nvim_del_augroup_by_name, "Awards53UndoDiffPreview")
+        if list_win and vim.api.nvim_win_is_valid(list_win) then
+            vim.api.nvim_win_close(list_win, true)
+        end
+        if preview_win and vim.api.nvim_win_is_valid(preview_win) then
+            vim.api.nvim_win_close(preview_win, true)
+        end
+    end
+
+    -- Перехід до обраного стану при натисканні <Enter>
+    vim.keymap.set("n", "<CR>", function()
+        local cursor = vim.api.nvim_win_get_cursor(list_win)
+        local selected_seq = seq_map[cursor[1]]
+        close_windows()
+
+        if selected_seq then
+            if state.restore_to_seq(selected_seq) then
+                M.redraw()
+            end
+        end
+    end, { buffer = list_buf, silent = true })
+
+    vim.keymap.set("n", "q", close_windows, { buffer = list_buf, silent = true })
+    vim.keymap.set("n", "<Esc>", close_windows, { buffer = list_buf, silent = true })
+end
+
+
 local function bind_keys() 
     local cfg = require("awards53") 
 
@@ -315,6 +492,11 @@ local function bind_keys()
             if state.redo_last() then 
                 M.redraw() 
             end 
+        end, false },
+
+        -- Відкриття вікна перегляду Undotree
+        ["U"] = { function()
+            M.open_undotree_window()
         end, false },
 
         ["dp"]  = { function() move_karta.move_to_fork() end, true },

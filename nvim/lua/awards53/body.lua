@@ -20,7 +20,7 @@ function M.render()
 
         if is_active then
             local total_fields = #state.headers_list()
-            local header_text = string.format(" 󰓻 Поле %s/%d     j▲ k▼ #f    🖊:i► F-    ⇊:J/K  ", field, total_fields)
+            local header_text = string.format(" 󰓻 Поле %s/%d     j▲ k▼ #f    🖊:i► F-    ⇊:J/K    B 0    ", field, total_fields)
             
             -- Рахуємо довжину для активного поля теж, щоб не було nil
             local current_hr_width = vim.fn.strdisplaywidth(header_text)

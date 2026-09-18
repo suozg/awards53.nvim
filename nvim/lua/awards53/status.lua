@@ -163,7 +163,7 @@ function M.render()
 
     local operations =
         "h◄ l► [[◀◀ ]]▶▶ #g │ " ..
-        "S O⇄ A B 0 dp✥ dd✗ y⎘ p󰆑 :w🖪 :q⏻ │ ?"
+        "S O⇄ A dp✥ dd✗ y⎘ p󰆑 :w🖪 | u c-r U󰓦 | ? | :q⏻"
 
     return table.concat({
         "%#" .. mode_hl .. "# ",

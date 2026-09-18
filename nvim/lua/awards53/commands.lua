@@ -1,4 +1,4 @@
-local M = {} 
+local M = {}
 
 local parser = require("awards53.parser")
 local state = require("awards53.state")
@@ -36,7 +36,11 @@ end
 -- Допоміжна функція для отримання лише рядків нашого блоку
 local function get_awards_block_lines(buf_lines)
     local first, last = M.find_awards_block(buf_lines)
-    if not first then return nil end
+
+    if not first then
+        return nil
+    end
+
     return vim.list_slice(buf_lines, first + 1, last)
 end
 
@@ -44,25 +48,44 @@ local function open_cards()
     local current_buf = vim.api.nvim_get_current_buf()
     local target_buf = current_buf
 
-    local lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
+    local lines = vim.api.nvim_buf_get_lines(
+        current_buf,
+        0,
+        -1,
+        false
+    )
+
     local first, _ = M.find_awards_block(lines)
 
     if not first then
         local found_base = false
+
         for _, buf in ipairs(vim.api.nvim_list_bufs()) do
             if vim.api.nvim_buf_is_valid(buf) then
-                local blines = vim.api.nvim_buf_get_lines(buf, 0, 100, false)
+                local blines = vim.api.nvim_buf_get_lines(
+                    buf,
+                    0,
+                    100,
+                    false
+                )
+
                 local b_first, _ = M.find_awards_block(blines)
+
                 if b_first then
                     target_buf = buf
-                    lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+                    lines = vim.api.nvim_buf_get_lines(
+                        buf,
+                        0,
+                        -1,
+                        false
+                    )
                     first = b_first
                     found_base = true
                     break
                 end
             end
         end
-        
+
         if not found_base then
             first = nil
         end
@@ -72,21 +95,41 @@ local function open_cards()
     state.set_source_win(vim.api.nvim_get_current_win())
 
     if not first or (#lines == 1 and vim.trim(lines[1]) == "") then
-        lines = { "*" .. " " .. cfg.config.section, "", "" }
-        
+        lines = {
+            "*" .. " " .. cfg.config.section,
+            "",
+            "",
+        }
+
         local old_mod = vim.bo[target_buf].modifiable
+
         vim.bo[target_buf].modifiable = true
-        vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, lines)
+
+        vim.api.nvim_buf_set_lines(
+            target_buf,
+            0,
+            -1,
+            false,
+            lines
+        )
+
         vim.bo[target_buf].modifiable = old_mod
-        
+
         first = 1
     end
 
     local block = get_awards_block_lines(lines) or {}
     local data = parser.parse(block)
 
-    if #data.records == 0 then table.insert(data.records, { ["1"] = { "" } }) end
-    if #data.headers == 0 then table.insert(data.headers, "1") end
+    if #data.records == 0 then
+        table.insert(data.records, {
+            ["1"] = { "" },
+        })
+    end
+
+    if #data.headers == 0 then
+        table.insert(data.headers, "1")
+    end
 
     state.set(data)
     ui.open()
@@ -94,29 +137,49 @@ end
 
 function M.sync_org_buffer()
     local buf = state.get_source_buffer()
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
 
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
+
+    local lines = vim.api.nvim_buf_get_lines(
+        buf,
+        0,
+        -1,
+        false
+    )
+
     local first, last = M.find_awards_block(lines)
 
     if not first then
-        utils.error("Розділ " .. cfg.config.section .. " не знайдено")
+        utils.error(
+            "Розділ " .. cfg.config.section .. " не знайдено"
+        )
         return
     end
+
     local out = serializer.build(state.data())
 
     local old_modifiable = vim.bo[buf].modifiable
+
     vim.bo[buf].modifiable = true
-    
-    vim.api.nvim_buf_set_lines(buf, first, last, false, out)
-    
+
+    vim.api.nvim_buf_set_lines(
+        buf,
+        first,
+        last,
+        false,
+        out
+    )
+
     vim.bo[buf].modifiable = old_modifiable
 end
 
 local function save_cards()
-    M.sync_org_buffer() 
+    M.sync_org_buffer()
 
     local buf = state.get_source_buffer()
+
     if buf and vim.api.nvim_buf_is_valid(buf) then
         vim.api.nvim_buf_call(buf, function()
             vim.cmd("write")
@@ -127,15 +190,24 @@ end
 function M.setup()
     local commands = {
         Awards53 = open_cards,
-        Awards53abbr = function() 
-            require("awards53.abbreviations").edit_config() 
+
+        Awards53abbr = function()
+            require("awards53.abbreviations").edit_config()
         end,
     }
-    
-    for cmd_name, callback in pairs(commands) do
-        vim.api.nvim_create_user_command(cmd_name, callback, {})
-    end
 
+    for cmd_name, callback in pairs(commands) do
+        -- setup() може викликатися повторно.
+        -- nvim_create_user_command() не перезаписує існуючу
+        -- глобальну команду, тому спочатку видаляємо її.
+        pcall(vim.api.nvim_del_user_command, cmd_name)
+
+        vim.api.nvim_create_user_command(
+            cmd_name,
+            callback,
+            {}
+        )
+    end
 end
 
 return M
