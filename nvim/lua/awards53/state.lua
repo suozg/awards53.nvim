@@ -1,7 +1,7 @@
 -- state.lua (Ядро керування)
 --│   └── Функції: Зберігають інформацію про відкриті записи та закладки,
 --                делегують історію змін (undo/redo) нативному буферу Neovim,
---                а також відповідають за навігацію (перехід до наступної/попередньої картки).
+--                навігацію та блокування між процесами/терміналами.
 
 local M = {}
 
@@ -9,6 +9,9 @@ local cfg = require("awards53")
 local utils = require("awards53.utils")
 local serializer = require("awards53.serializer")
 local parser = require("awards53.parser")
+
+local uv = vim.loop or vim.uv
+local lock_file_path = vim.fn.stdpath("data") .. "/awards53.lock"
 
 -- Початковий стан
 M.is_changed = false
@@ -40,7 +43,62 @@ function M.mark_as_clean()
     M.is_changed = false
 end
 
--- Перепарсинг даних безпосередньо з org-буфера після undo/redo
+-- ==========================================
+-- Межпроцесне блокування (Lock-файл для терміналів)
+-- ==========================================
+
+function M.is_busy()
+    -- 1. Перевірка всередині поточного процесу Neovim
+    if M.source_buffer ~= nil and vim.api.nvim_buf_is_valid(M.source_buffer) then
+        return true
+    end
+
+    -- 2. Перевірка між РІЗНИМИ терміналами через lock-файл
+    local _, stat = uv.fs_stat(lock_file_path)
+    if stat then
+        local f = io.open(lock_file_path, "r")
+        if f then
+            local pid = tonumber(f:read("*l"))
+            f:close()
+
+            if pid then
+                -- Перевіряємо, чи живий процесс PID у системі
+                local is_alive = (vim.fn.jobwait({ vim.fn.jobstart({ "kill", "-0", tostring(pid) }) }, 500)[1] == 0)
+                if is_alive then
+                    return true -- Процес існує в іншому терміналі
+                else
+                    -- Процес завершився аварійно, підчищаємо старий lock
+                    os.remove(lock_file_path)
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+function M.acquire_lock(buf)
+    M.source_buffer = buf
+
+    local pid = vim.fn.getpid()
+    local f = io.open(lock_file_path, "w")
+    if f then
+        f:write(tostring(pid) .. "\n")
+        f:close()
+    end
+end
+
+function M.release_lock()
+    M.source_buffer = nil
+    M.source_win = nil
+
+    os.remove(lock_file_path)
+end
+
+-- ==========================================
+-- Перепарсинг та синхронізація
+-- ==========================================
+
 function M.reload_from_buffer()
     if not M.source_buffer or not vim.api.nvim_buf_is_valid(M.source_buffer) then
         return false
@@ -48,11 +106,8 @@ function M.reload_from_buffer()
 
     local lines = vim.api.nvim_buf_get_lines(M.source_buffer, 0, -1, false)
 
-    -- Фільтруємо або видаляємо службові рядки перед парсингом,
-    -- щоб вони не потрапляли в перше поле першої картки
     local cleaned_lines = {}
     for _, line in ipairs(lines) do
-        -- Якщо це службовий заголовок файлу — пропускаємо його для парсера
         if not line:match("^%*%s+AWARDS53") then
             table.insert(cleaned_lines, line)
         end
@@ -63,7 +118,6 @@ function M.reload_from_buffer()
     M.records = parsed.records or {}
     M.headers = parsed.headers or {}
 
-    -- Додатковий запобіжник: якщо службовий текст усе ж потрапив у 1-ше поле 1-ї картки
     if M.records[1] and M.records[1]["1"] then
         local val = M.records[1]["1"]
         if type(val) == "table" then
@@ -78,7 +132,6 @@ function M.reload_from_buffer()
         end
     end
 
-    -- Коригуємо поточні позиції
     M.current = math.max(1, math.min(M.current or 1, math.max(1, #M.records)))
     M.field = math.max(1, math.min(M.field or 1, math.max(1, #M.headers)))
 
@@ -88,14 +141,16 @@ function M.reload_from_buffer()
     return true
 end
 
--- Фіксація зміни стану
 function M.snapshot()
     M.next_state_id = M.next_state_id + 1
     M.current_state_id = M.next_state_id
     update_is_changed_status()
 end
 
--- Нативний Undo через Neovim з перевіркою межі історії
+-- ==========================================
+-- Undo / Redo
+-- ==========================================
+
 function M.undo_last()
     if not M.source_buffer or not vim.api.nvim_buf_is_valid(M.source_buffer) then
         utils.warn("Джерельний буфер недоступний")
@@ -110,7 +165,6 @@ function M.undo_last()
 
     local tick_after = vim.api.nvim_buf_get_changedtick(M.source_buffer)
 
-    -- Якщо changedtick не змінився, значить далі скасовувати нічого
     if tick_before == tick_after then
         utils.warn("Немає дій для скасування (Undo)")
         return false
@@ -122,7 +176,6 @@ function M.undo_last()
     return true
 end
 
--- Нативний Redo через Neovim з перевіркою межі історії
 function M.redo_last()
     if not M.source_buffer or not vim.api.nvim_buf_is_valid(M.source_buffer) then
         utils.warn("Джерельний буфер недоступний")
@@ -137,7 +190,6 @@ function M.redo_last()
 
     local tick_after = vim.api.nvim_buf_get_changedtick(M.source_buffer)
 
-    -- Якщо changedtick не змінився, значить далі повторювати нічого
     if tick_before == tick_after then
         utils.warn("Немає дій для повтору (Redo)")
         return false
@@ -149,7 +201,6 @@ function M.redo_last()
     return true
 end
 
--- Отримання структурованого списку змін з деталями (текстом)
 function M.get_undo_list()
     if not M.source_buffer or not vim.api.nvim_buf_is_valid(M.source_buffer) then
         return {}
@@ -162,20 +213,11 @@ function M.get_undo_list()
     local entries = {}
     local current_seq = tree.seq_cur
 
-    -- Рекурсивний обхід дерева дій
     local function traverse(nodes)
         for _, node in ipairs(nodes) do
             local is_cur = (node.seq == current_seq)
             local time_str = os.date("%H:%M:%S", node.time)
-            
-            -- Отримуємо короткий опис (якщо є збережені зміни)
-            local preview = ""
-            if node.seq == 0 then
-                preview = "Початковий стан"
-            else
-                -- Спробуємо отримати додаткову інформацію про зміну
-                preview = string.format("Запис #%d", node.seq)
-            end
+            local preview = node.seq == 0 and "Початковий стан" or string.format("Запис #%d", node.seq)
 
             table.insert(entries, {
                 seq = node.seq,
@@ -198,7 +240,6 @@ function M.get_undo_list()
     return entries
 end
 
--- Перехід до конкретного номера стану в історії (seq)
 function M.restore_to_seq(seq)
     if not M.source_buffer or not vim.api.nvim_buf_is_valid(M.source_buffer) then
         utils.warn("Джерельний буфер недоступний")
@@ -215,7 +256,10 @@ function M.restore_to_seq(seq)
     return true
 end
 
--- Швидкі inline-геттери/сеттери
+-- ==========================================
+-- Геттери та Сеттери
+-- ==========================================
+
 function M.set_source_win(win)
     M.source_win = win
 end
@@ -225,7 +269,11 @@ function M.get_source_win()
 end
 
 function M.set_source_buffer(buf)
-    M.source_buffer = buf
+    if buf == nil then
+        M.release_lock()
+    else
+        M.acquire_lock(buf)
+    end
 end
 
 function M.get_source_buffer()
@@ -271,7 +319,10 @@ function M.field_name()
     return M.headers[M.field]
 end
 
+-- ==========================================
 -- Закладки
+-- ==========================================
+
 function M.toggle_bookmark()
     local idx = M.current
 
@@ -284,7 +335,6 @@ function M.toggle_bookmark()
     end
 
     M.is_changed = true
-
     return true
 end
 
@@ -295,19 +345,12 @@ end
 
 function M.next_bookmark()
     local n = #M.records
-
-    if n == 0 then
-        return false
-    end
+    if n == 0 then return false end
 
     local start = M.current
-
     for _ = 1, n do
         start = start + 1
-
-        if start > n then
-            start = 1
-        end
+        if start > n then start = 1 end
 
         if M.bookmarks[start] then
             M.current = start
@@ -317,25 +360,17 @@ function M.next_bookmark()
     end
 
     utils.info("Закладок не знайдено")
-
     return false
 end
 
 function M.prev_bookmark()
     local n = #M.records
-
-    if n == 0 then
-        return false
-    end
+    if n == 0 then return false end
 
     local start = M.current
-
     for _ = 1, n do
         start = start - 1
-
-        if start < 1 then
-            start = n
-        end
+        if start < 1 then start = n end
 
         if M.bookmarks[start] then
             M.current = start
@@ -345,18 +380,19 @@ function M.prev_bookmark()
     end
 
     utils.info("Закладок не знайдено")
-
     return false
 end
 
--- Оновлення порядкових номерів
+-- ==========================================
+-- Модифікація даних картки
+-- ==========================================
+
 function M.renumber()
     for i, rec in ipairs(M.records) do
         rec.N = i
     end
 end
 
--- Схлопування порожніх полів по всьому файлу
 function M.collapse_empty_fields_globally()
     local original_headers_count = #M.headers
 
@@ -368,9 +404,8 @@ function M.collapse_empty_fields_globally()
     M.snapshot()
 
     local max_non_empty_index = 1
-    local record_with_max_fields = 1
 
-    for r_idx, record in ipairs(M.records) do
+    for _, record in ipairs(M.records) do
         local non_empty_values = {}
 
         for idx = 1, original_headers_count do
@@ -396,7 +431,6 @@ function M.collapse_empty_fields_globally()
 
         if #non_empty_values > max_non_empty_index then
             max_non_empty_index = #non_empty_values
-            record_with_max_fields = r_idx
         end
 
         for idx = 1, original_headers_count do
@@ -411,17 +445,14 @@ function M.collapse_empty_fields_globally()
     end
 
     local new_headers = {}
-
     for i = 1, max_non_empty_index do
         table.insert(new_headers, tostring(i))
     end
-
     M.headers = new_headers
 
     for _, record in ipairs(M.records) do
         for idx = 1, max_non_empty_index do
             local key = tostring(idx)
-
             if record[key] == nil then
                 record[key] = { "" }
             end
@@ -436,29 +467,16 @@ function M.collapse_empty_fields_globally()
     M.is_changed = true
 
     M.sync_to_disk()
-
-    utils.info(
-        string.format(
-            "Успішно видалено порожні поля. Максимум полів: %d",
-            max_non_empty_index
-        )
-    )
+    utils.info(string.format("Успішно видалено порожні поля. Максимум полів: %d", max_non_empty_index))
 
     return true
 end
 
 local function process_flat_field(record, key)
     local val = record[key]
+    if not val then return nil end
 
-    if not val then
-        return nil
-    end
-
-    local combined =
-        type(val) == "table"
-        and table.concat(val, " ")
-        or tostring(val)
-
+    local combined = type(val) == "table" and table.concat(val, " ") or tostring(val)
     combined = combined:gsub("%s+", " ")
 
     return { combined }
@@ -466,25 +484,17 @@ end
 
 function M.flatten_current_field()
     local record = M.current_record()
-
-    if not record then
-        return false
-    end
+    if not record then return false end
 
     local key = tostring(M.field)
     local result = process_flat_field(record, key)
-
-    if not result then
-        return false
-    end
+    if not result then return false end
 
     M.snapshot()
-
     record[key] = result
     M.is_changed = true
 
     M.sync_to_disk()
-
     utils.info("Усі рядки в полі сплющено")
 
     return true
@@ -495,9 +505,7 @@ function M.flatten_field_globally()
     local count = 0
 
     for _, record in ipairs(M.records) do
-        local result = process_flat_field(record, key)
-
-        if result then
+        if process_flat_field(record, key) then
             count = count + 1
         end
     end
@@ -511,20 +519,21 @@ function M.flatten_field_globally()
 
     for _, record in ipairs(M.records) do
         local result = process_flat_field(record, key)
-
         if result then
             record[key] = result
         end
     end
 
     M.is_changed = true
-
     M.sync_to_disk()
 
     utils.info(count .. " карток сплющено")
-
     return true
 end
+
+-- ==========================================
+-- Навігація та Пошук
+-- ==========================================
 
 local function adjust_navigation(new_pos)
     if new_pos >= 1 and new_pos <= #M.records then
@@ -536,32 +545,14 @@ local function adjust_navigation(new_pos)
     return false
 end
 
-function M.next()
-    return adjust_navigation(M.current + 1)
-end
-
-function M.prev()
-    return adjust_navigation(M.current - 1)
-end
-
-function M.goto_record(n)
-    return adjust_navigation(n)
-end
-
-function M.first()
-    adjust_navigation(1)
-end
-
-function M.last()
-    adjust_navigation(#M.records)
-end
+function M.next() return adjust_navigation(M.current + 1) end
+function M.prev() return adjust_navigation(M.current - 1) end
+function M.goto_record(n) return adjust_navigation(n) end
+function M.first() adjust_navigation(1) end
+function M.last() adjust_navigation(#M.records) end
 
 function M.jump(offset)
-    local n = math.max(
-        1,
-        math.min(#M.records, M.current + offset)
-    )
-
+    local n = math.max(1, math.min(#M.records, M.current + offset))
     adjust_navigation(n)
 end
 
@@ -571,7 +562,6 @@ function M.next_field()
         M.last_field = M.field
         return true
     end
-
     return false
 end
 
@@ -581,15 +571,11 @@ function M.prev_field()
         M.last_field = M.field
         return true
     end
-
     return false
 end
 
 function M.find(text, step, field)
-    field = field
-        or M.last_search_field
-        or cfg.config.default_sort
-
+    field = field or M.last_search_field or cfg.config.default_sort
     text, step = utils.normalize(text), step or 1
     M.last_search, M.last_search_field = text, field
 
@@ -598,7 +584,6 @@ function M.find(text, step, field)
 
     for _ = 1, n do
         start = start + step
-
         if start > n then
             start = 1
         elseif start < 1 then
@@ -606,10 +591,7 @@ function M.find(text, step, field)
         end
 
         local rec = M.records[start]
-
-        local value = utils.normalize(
-            table.concat(rec[field] or {}, " ")
-        )
+        local value = utils.normalize(table.concat(rec[field] or {}, " "))
 
         if value:find(text, 1, true) then
             M.current = start
@@ -621,27 +603,20 @@ function M.find(text, step, field)
 end
 
 function M.find_next(step)
-    return M.last_search
-        and M.find(
-            M.last_search,
-            step or 1,
-            M.last_search_field
-        )
-        or false
+    return M.last_search and M.find(M.last_search, step or 1, M.last_search_field) or false
 end
+
+-- ==========================================
+-- Буфер обміну та структура полів
+-- ==========================================
 
 function M.copy_current()
     local current_rec = M.current_record()
-
-    if not current_rec then
-        return false
-    end
+    if not current_rec then return false end
 
     local lines = serializer.build({
         headers = M.headers,
-        records = {
-            vim.deepcopy(current_rec),
-        },
+        records = { vim.deepcopy(current_rec) },
     })
 
     while #lines > 0 and vim.trim(lines[1]) == "" do
@@ -649,40 +624,20 @@ function M.copy_current()
     end
 
     vim.fn.setreg("+", table.concat(lines, "\n"))
-
     return true
 end
 
 function M.paste_after()
     M.records = M.records or {}
-
-    M.current = #M.records == 0
-        and 0
-        or math.max(
-            1,
-            math.min(#M.records, M.current)
-        )
+    M.current = #M.records == 0 and 0 or math.max(1, math.min(#M.records, M.current))
 
     local text = vim.fn.getreg("+")
-
-    if not text or vim.trim(text) == "" then
-        return false
-    end
+    if not text or vim.trim(text) == "" then return false end
 
     text = utils.clean_invisible_chars(text)
+    local parsed = parser.parse(vim.split(text, "\n", { trimempty = false }), cfg.config.separator)
 
-    local parsed = parser.parse(
-        vim.split(
-            text,
-            "\n",
-            { trimempty = false }
-        ),
-        cfg.config.separator
-    )
-
-    if not parsed.records or #parsed.records == 0 then
-        return false
-    end
+    if not parsed.records or #parsed.records == 0 then return false end
 
     M.snapshot()
 
@@ -693,12 +648,7 @@ function M.paste_after()
     end
 
     local insert_pos = M.current + 1
-
-    table.insert(
-        M.records,
-        insert_pos,
-        vim.deepcopy(parsed.records[1])
-    )
+    table.insert(M.records, insert_pos, vim.deepcopy(parsed.records[1]))
 
     M.current = insert_pos
     M.is_changed = true
@@ -711,79 +661,53 @@ end
 
 function M.move_field_content_up()
     local idx = M.field
-
-    if idx <= 1 then
-        return false
-    end
+    if idx <= 1 then return false end
 
     local record = M.current_record()
-
-    if not record then
-        return false
-    end
+    if not record then return false end
 
     M.snapshot()
+    local current_key, prev_key = tostring(idx), tostring(idx - 1)
 
-    local current_key = tostring(idx)
-    local prev_key = tostring(idx - 1)
-
-    record[current_key], record[prev_key] =
-        record[prev_key], record[current_key]
+    record[current_key], record[prev_key] = record[prev_key], record[current_key]
 
     M.field = idx - 1
     M.last_field = M.field
     M.is_changed = true
 
     M.sync_to_disk()
-
     return true
 end
 
 function M.move_field_content_down()
     local idx = M.field
-
-    if idx >= #M.headers then
-        return false
-    end
+    if idx >= #M.headers then return false end
 
     local record = M.current_record()
-
-    if not record then
-        return false
-    end
+    if not record then return false end
 
     M.snapshot()
+    local current_key, next_key = tostring(idx), tostring(idx + 1)
 
-    local current_key = tostring(idx)
-    local next_key = tostring(idx + 1)
-
-    record[current_key], record[next_key] =
-        record[next_key], record[current_key]
+    record[current_key], record[next_key] = record[next_key], record[current_key]
 
     M.field = idx + 1
     M.last_field = M.field
     M.is_changed = true
 
     M.sync_to_disk()
-
     return true
 end
 
 function M.move_field_globally_up()
     local idx = M.field
-
-    if idx <= 1 then
-        return false
-    end
+    if idx <= 1 then return false end
 
     M.snapshot()
-
-    local current_key = tostring(idx)
-    local prev_key = tostring(idx - 1)
+    local current_key, prev_key = tostring(idx), tostring(idx - 1)
 
     for _, record in ipairs(M.records) do
-        record[current_key], record[prev_key] =
-            record[prev_key], record[current_key]
+        record[current_key], record[prev_key] = record[prev_key], record[current_key]
     end
 
     M.field = idx - 1
@@ -791,7 +715,6 @@ function M.move_field_globally_up()
     M.is_changed = true
 
     M.sync_to_disk()
-
     utils.info("Поле переміщено вгору у всіх картках!")
 
     return true
@@ -799,19 +722,13 @@ end
 
 function M.move_field_globally_down()
     local idx = M.field
-
-    if idx >= #M.headers then
-        return false
-    end
+    if idx >= #M.headers then return false end
 
     M.snapshot()
-
-    local current_key = tostring(idx)
-    local next_key = tostring(idx + 1)
+    local current_key, next_key = tostring(idx), tostring(idx + 1)
 
     for _, record in ipairs(M.records) do
-        record[current_key], record[next_key] =
-            record[next_key], record[current_key]
+        record[current_key], record[next_key] = record[next_key], record[current_key]
     end
 
     M.field = idx + 1
@@ -819,7 +736,6 @@ function M.move_field_globally_down()
     M.is_changed = true
 
     M.sync_to_disk()
-
     utils.info("Поле переміщено вниз у всіх картках!")
 
     return true
@@ -832,18 +748,8 @@ function M.set(data)
     M.headers = data.headers or {}
     M.bookmarks = data.bookmarks or {}
 
-    local saved_current = math.max(
-        1,
-        math.min(M.current or 1, math.max(1, #M.records))
-    )
-
-    local saved_field = math.max(
-        1,
-        math.min(M.field or 1, math.max(1, #M.headers))
-    )
-
-    M.current = saved_current
-    M.field = saved_field
+    M.current = math.max(1, math.min(M.current or 1, math.max(1, #M.records)))
+    M.field = math.max(1, math.min(M.field or 1, math.max(1, #M.headers)))
     M.current_mode = "NORMAL"
 
     M.next_state_id = M.next_state_id + 1
@@ -851,7 +757,6 @@ function M.set(data)
     M.saved_state_id = M.current_state_id
 
     M.is_changed = false
-
     M.renumber()
 end
 
@@ -859,51 +764,27 @@ function M.sort_by(field)
     M.snapshot()
 
     local char2nr = vim.fn.char2nr
-
     local function norm(v)
-        return table.concat(
-            type(v) == "table"
-                and v
-                or { v or "" },
-            " "
-        ):gsub("%s+", " ")
+        return table.concat(type(v) == "table" and v or { v or "" }, " "):gsub("%s+", " ")
     end
 
     local alphabet = {}
-
-    for i, c in ipairs(
-        vim.fn.split(
-            "АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ",
-            "\\zs"
-        )
-    ) do
+    for i, c in ipairs(vim.fn.split("АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ", "\\zs")) do
         alphabet[c] = i
     end
 
     local function uk_cmp(a, b)
         a, b = vim.fn.toupper(a), vim.fn.toupper(b)
-
         local aa = vim.fn.split(a, "\\zs")
         local bb = vim.fn.split(b, "\\zs")
 
-        local n = math.max(#aa, #bb)
-
-        for i = 1, n do
+        for i = 1, math.max(#aa, #bb) do
             local ca, cb = aa[i], bb[i]
+            if ca == nil then return true end
+            if cb == nil then return false end
 
-            if ca == nil then
-                return true
-            end
-
-            if cb == nil then
-                return false
-            end
-
-            local va = alphabet[ca]
-                or (1000 + char2nr(ca))
-
-            local vb = alphabet[cb]
-                or (1000 + char2nr(cb))
+            local va = alphabet[ca] or (1000 + char2nr(ca))
+            local vb = alphabet[cb] or (1000 + char2nr(cb))
 
             if va ~= vb then
                 return va < vb
@@ -914,15 +795,11 @@ function M.sort_by(field)
     end
 
     table.sort(M.records, function(a, b)
-        return uk_cmp(
-            norm(a[field]),
-            norm(b[field])
-        )
+        return uk_cmp(norm(a[field]), norm(b[field]))
     end)
 
     M.renumber()
     M.is_changed = true
-
     M.sync_to_disk()
 end
 
@@ -930,13 +807,11 @@ function M.new_record()
     M.snapshot()
 
     local rec = {}
-
     for _, f in ipairs(M.headers) do
         rec[f] = { "" }
     end
 
     table.insert(M.records, rec)
-
     M.renumber()
 
     M.current = #M.records
@@ -947,19 +822,12 @@ function M.new_record()
 end
 
 function M.delete_current()
-    if #M.records <= 1 then
-        return false
-    end
+    if #M.records <= 1 then return false end
 
     M.snapshot()
-
     table.remove(M.records, M.current)
 
-    M.current = math.min(
-        M.current,
-        #M.records
-    )
-
+    M.current = math.min(M.current, #M.records)
     M.field = 1
     M.is_changed = true
 
@@ -979,31 +847,23 @@ function M.new_field(default_value)
 
     for _, record in ipairs(M.records) do
         for i = total_headers, insert_idx, -1 do
-            record[tostring(i + 1)] =
-                record[tostring(i)]
+            record[tostring(i + 1)] = record[tostring(i)]
         end
-
         record[tostring(insert_idx)] = { val }
     end
 
-    table.insert(
-        M.headers,
-        tostring(total_headers + 1)
-    )
+    table.insert(M.headers, tostring(total_headers + 1))
 
     M.field = insert_idx
     M.last_field = M.field
     M.is_changed = true
 
     M.sync_to_disk()
-
     return true
 end
 
 function M.delete_field()
-    if #M.headers <= 1 then
-        return false
-    end
+    if #M.headers <= 1 then return false end
 
     M.snapshot()
 
@@ -1012,10 +872,8 @@ function M.delete_field()
 
     for _, record in ipairs(M.records) do
         for i = idx, total - 1 do
-            record[tostring(i)] =
-                record[tostring(i + 1)]
+            record[tostring(i)] = record[tostring(i + 1)]
         end
-
         record[tostring(total)] = nil
     end
 
@@ -1026,16 +884,11 @@ function M.delete_field()
     M.is_changed = true
 
     M.sync_to_disk()
-
     return true
 end
 
 function M.sync_to_disk()
-    local ok, commands = pcall(
-        require,
-        "awards53.commands"
-    )
-
+    local ok, commands = pcall(require, "awards53.commands")
     if ok and type(commands.sync_org_buffer) == "function" then
         pcall(commands.sync_org_buffer)
     end

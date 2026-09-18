@@ -1,3 +1,5 @@
+-- commands.lua (Головний модуль команд та синхронізації з буфером)
+
 local M = {}
 
 local parser = require("awards53.parser")
@@ -46,39 +48,38 @@ end
 
 local function open_cards()
     local current_buf = vim.api.nvim_get_current_buf()
+
+    -- 1. Перевірка блокування (включно з міжпроцесним через lock-файл)
+    if state.is_busy() and state.get_source_buffer() ~= current_buf then
+        utils.warn("Редактор Awards53 вже відкритий в іншому вікні або терміналі")
+        return
+    end
+
+    -- 2. Якщо редактор для ЦЬОГО Ж файлу ВЖЕ відкритий (і UI існує) — переходимо в його вікно
+    if ui.body_buf and vim.api.nvim_buf_is_valid(ui.body_buf) then
+        if ui.body_win and vim.api.nvim_win_is_valid(ui.body_win) then
+            vim.api.nvim_set_current_win(ui.body_win)
+            ui.redraw()
+            return
+        end
+    end
+
     local target_buf = current_buf
-
-    local lines = vim.api.nvim_buf_get_lines(
-        current_buf,
-        0,
-        -1,
-        false
-    )
-
+    local lines = vim.api.nvim_buf_get_lines(current_buf, 0, -1, false)
     local first, _ = M.find_awards_block(lines)
 
+    -- Якщо блок не знайдено в поточному буфері, шукаємо серед відкритих буферів
     if not first then
         local found_base = false
 
         for _, buf in ipairs(vim.api.nvim_list_bufs()) do
             if vim.api.nvim_buf_is_valid(buf) then
-                local blines = vim.api.nvim_buf_get_lines(
-                    buf,
-                    0,
-                    100,
-                    false
-                )
-
+                local blines = vim.api.nvim_buf_get_lines(buf, 0, 100, false)
                 local b_first, _ = M.find_awards_block(blines)
 
                 if b_first then
                     target_buf = buf
-                    lines = vim.api.nvim_buf_get_lines(
-                        buf,
-                        0,
-                        -1,
-                        false
-                    )
+                    lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
                     first = b_first
                     found_base = true
                     break
@@ -91,9 +92,11 @@ local function open_cards()
         end
     end
 
+    -- Захоплюємо lock через set_source_buffer
     state.set_source_buffer(target_buf)
     state.set_source_win(vim.api.nvim_get_current_win())
 
+    -- Якщо розділу немає, створюємо базовий
     if not first or (#lines == 1 and vim.trim(lines[1]) == "") then
         lines = {
             "*" .. " " .. cfg.config.section,
@@ -102,17 +105,8 @@ local function open_cards()
         }
 
         local old_mod = vim.bo[target_buf].modifiable
-
         vim.bo[target_buf].modifiable = true
-
-        vim.api.nvim_buf_set_lines(
-            target_buf,
-            0,
-            -1,
-            false,
-            lines
-        )
-
+        vim.api.nvim_buf_set_lines(target_buf, 0, -1, false, lines)
         vim.bo[target_buf].modifiable = old_mod
 
         first = 1
@@ -142,48 +136,33 @@ function M.sync_org_buffer()
         return
     end
 
-    local lines = vim.api.nvim_buf_get_lines(
-        buf,
-        0,
-        -1,
-        false
-    )
-
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local first, last = M.find_awards_block(lines)
 
     if not first then
-        utils.error(
-            "Розділ " .. cfg.config.section .. " не знайдено"
-        )
+        utils.error("Розділ " .. cfg.config.section .. " не знайдено")
         return
     end
 
     local out = serializer.build(state.data())
 
     local old_modifiable = vim.bo[buf].modifiable
-
     vim.bo[buf].modifiable = true
-
-    vim.api.nvim_buf_set_lines(
-        buf,
-        first,
-        last,
-        false,
-        out
-    )
-
+    vim.api.nvim_buf_set_lines(buf, first, last, false, out)
     vim.bo[buf].modifiable = old_modifiable
 end
 
-local function save_cards()
+function M.save_cards()
     M.sync_org_buffer()
 
     local buf = state.get_source_buffer()
 
     if buf and vim.api.nvim_buf_is_valid(buf) then
         vim.api.nvim_buf_call(buf, function()
-            vim.cmd("write")
+            vim.cmd("silent! write")
         end)
+        state.mark_as_clean()
+        utils.info("Збережено на диск")
     end
 end
 
@@ -197,16 +176,8 @@ function M.setup()
     }
 
     for cmd_name, callback in pairs(commands) do
-        -- setup() може викликатися повторно.
-        -- nvim_create_user_command() не перезаписує існуючу
-        -- глобальну команду, тому спочатку видаляємо її.
         pcall(vim.api.nvim_del_user_command, cmd_name)
-
-        vim.api.nvim_create_user_command(
-            cmd_name,
-            callback,
-            {}
-        )
+        vim.api.nvim_create_user_command(cmd_name, callback, {})
     end
 end
 
