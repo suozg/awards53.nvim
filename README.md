@@ -339,29 +339,6 @@ bash/convert_to_AWARDS53.sh *.docx
 chmod +x bash/convert_to_AWARDS53.sh bash/doc53-picker
 ```
 
-## Структура репозиторію
-
-```text
-bash/
-├── convert_to_AWARDS53.sh
-└── doc53-picker
-
-nvim/
-├── bin/
-│   ├── search.sh
-│   └── sql_search.sh
-├── lua/awards53/
-│   ├── init.lua
-│   ├── commands.lua
-│   ├── parser.lua
-│   ├── serializer.lua
-│   ├── state.lua
-│   ├── searchtxt.lua
-│   ├── ui.lua
-│   └── documents/
-└── lua/config/
-```
-
 ## Обмеження
 
 - одночасно редагується один Awards53-документ;
