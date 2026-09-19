@@ -333,7 +333,7 @@ bash/convert_to_AWARDS53.sh файл.doc
 bash/convert_to_AWARDS53.sh *.docx
 ```
 
-Для таблиці використовуються `::` між комірками, `===` між рядками та `* AWARDS53` як заголовок. Для кількох файлів додатково створюється `combined_awards.txt`.
+Для таблиці використовуються `::` між комірками, `===` між рядками та `* AWARDS53` як заголовок. Опціонально можна об'єднаии кілька файлів в `combined_awards.txt`.
 
 ```bash
 chmod +x bash/convert_to_AWARDS53.sh bash/doc53-picker
