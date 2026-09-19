@@ -837,10 +837,17 @@ end
 
 function M.sync_to_disk()
     local ok, commands = pcall(require, "awards53.commands")
-    if ok and type(commands.sync_org_buffer) == "function" then
-        pcall(commands.sync_org_buffer)
+    if not ok or type(commands.sync_org_buffer) ~= "function" then
+        return false
     end
+
+    local synced, result = pcall(commands.sync_org_buffer)
+    if not synced or result == false then
+        return false
+    end
+
     update_is_changed_status()
+    return true
 end
 
 return M

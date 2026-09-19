@@ -749,6 +749,26 @@ function M.commit_inline_edit()
     )
 
     if not mark_pos or not mark_pos[1] then
+        local original_lines = M.inline_edit.original_lines
+        local original_start = M.inline_edit.start_row
+
+        if original_lines and original_start then
+            vim.bo[M.body_buf].modifiable = true
+            vim.api.nvim_buf_set_lines(
+                M.body_buf,
+                original_start,
+                original_start + #original_lines,
+                false,
+                original_lines
+            )
+        end
+
+        M.inline_edit.active = false
+        vim.bo[M.body_buf].modifiable = false
+        M.cleanup_inline_state()
+        state.set_mode("NORMAL")
+        M.redraw()
+
         utils.warn("Не вдалося визначити кінець inline-поля")
         return
     end
@@ -770,10 +790,18 @@ function M.commit_inline_edit()
     end
 
     local record = state.records[card_idx]
-    if record then
-        state.snapshot()
-        record[field] = edited_lines
+    if not record then
+        M.inline_edit.active = false
+        vim.bo[M.body_buf].modifiable = false
+        M.cleanup_inline_state()
+        state.set_mode("NORMAL")
+        M.redraw()
+        utils.warn("Картка для inline-редагування більше не існує")
+        return
     end
+ 
+    state.snapshot()
+    record[field] = edited_lines
 
     M.inline_edit.active = false
     vim.bo[M.body_buf].modifiable = false
@@ -781,10 +809,20 @@ function M.commit_inline_edit()
     M.cleanup_inline_state()
 
     state.set_mode("NORMAL")
-    state.sync_to_disk()
+    local synced = state.sync_to_disk()
     M.redraw()
-
-    utils.info(string.format("Поле '%s' збережено", field))
+ 
+    if synced then
+        utils.info(string.format(
+            "Поле '%s' оновлено в редакторі. Для запису на диск використайте :W",
+            field
+        ))
+    else
+        utils.warn(string.format(
+            "Поле '%s' змінено, але синхронізація з вихідним буфером не вдалася",
+            field
+        ))
+    end
 end
 
 function M.cancel_inline_edit()
