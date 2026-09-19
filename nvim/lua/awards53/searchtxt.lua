@@ -1,9 +1,10 @@
 local M = {}
 local utils = require("awards53.utils")
+local uv = vim.uv or vim.loop
 
 -- Шляхи до скриптів та баз даних
 local SEARCHDOCS_PATH = vim.fn.stdpath("config") .. "/bin/search.sh"
-local SEARCH_DIR = vim.fn.expand("~/STATYSTYKA/shtat/") 
+local SEARCH_DIR = vim.fn.expand("~/STATYSTYKA/shtat/")
 
 local SEARCHSQL_PATH = vim.fn.stdpath("config") .. "/bin/sql_search.sh"
 local DB_PATH = vim.fn.expand("~/awards/awards_v4e.db")
@@ -15,6 +16,99 @@ local KEYBOARD_SCRIPT_PATH = vim.fn.stdpath("config") .. "/bin/keyboard_script.s
 local cached_gpg_password = nil
 local cached_db_password = nil
 
+-- Поточне повідомлення прогресу пошуку. Воно не зникає через стандартний таймаут.
+local active_progress = nil
+local spinner_frames = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+
+local function stop_progress(progress)
+    if not progress then
+        return
+    end
+
+    progress.done = true
+    if progress.timer then
+        progress.timer:stop()
+        progress.timer:close()
+        progress.timer = nil
+    end
+
+    if active_progress == progress then
+        active_progress = nil
+    end
+end
+
+local function start_progress(label)
+    if active_progress then
+        stop_progress(active_progress)
+    end
+
+    local progress = {
+        label = label,
+        frame = 0,
+        started_at = uv.hrtime(),
+        notification_id = nil,
+        done = false,
+        timer = uv.new_timer(),
+    }
+    active_progress = progress
+
+    local function render()
+        if progress.done then
+            return
+        end
+
+        progress.frame = progress.frame % #spinner_frames + 1
+
+        local elapsed = math.floor(
+            (uv.hrtime() - progress.started_at) / 1000000000
+        )
+
+        local message = string.format(
+            "%s %s — %d с",
+            spinner_frames[progress.frame],
+            progress.label,
+            elapsed
+        )
+
+        vim.api.nvim_echo({ { message, "ModeMsg" } }, false, {})
+    end 
+    
+    render()
+    progress.timer:start(500, 500, vim.schedule_wrap(render))
+    return progress
+end
+
+local function finish_progress(progress, message, level)
+    if not progress or progress.done then
+        return
+    end
+
+    stop_progress(progress)
+
+    vim.api.nvim_echo({ { "", "Normal" } }, false, {})
+
+    vim.notify(message, level or vim.log.levels.INFO, {
+        title = "Awards53",
+        timeout = 3000,
+    })
+end
+
+local function run_search(command, opts, label, callback)
+    local progress = start_progress(label)
+
+    local process = vim.system(command, opts, function(obj)
+        vim.schedule(function()
+            if progress.done then
+                return
+            end
+            callback(obj, progress)
+        end)
+    end)
+
+    progress.process = process
+    return progress
+end
+
 -- Функція для примусового скидання кешованих паролів
 function M.clear_passwords()
     cached_gpg_password = nil
@@ -24,6 +118,10 @@ end
 
 -- Функція для отримання актуального значка поточної розкладки напряму з системи
 local function get_keyboard_layout_indicator()
+    if vim.fn.executable("xkb-switch") ~= 1 then
+        return "🗽US"
+    end
+
     local handle = io.popen("xkb-switch -p")
     if handle then
         local current = handle:read("*a")
@@ -40,9 +138,11 @@ end
 local function create_selection_window(items, target_win, target_buf, search_query, search_type_label)
     local buf = vim.api.nvim_create_buf(false, true)
     local formatted_items = {}
+
     for _, item in ipairs(items) do
         table.insert(formatted_items, string.format("[ ] %s", item))
     end
+
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, formatted_items)
 
     local width = math.min(130, vim.o.columns - 10)
@@ -50,14 +150,12 @@ local function create_selection_window(items, target_win, target_buf, search_que
     local row = math.floor((vim.o.lines - height) / 2)
     local col = math.floor((vim.o.columns - width) / 2)
 
-    -- Формуємо заголовок вікна
     local label = search_type_label or SEARCH_DIR
     local title_local = string.format(" Результати (%d) ", #items)
     if search_query and search_query ~= "" then
         title_local = string.format(' Знайдено "%s" по %s (%d) ', search_query, label, #items)
     end
 
-    -- 1. СПОЧАТКУ створюємо вікно, щоб змінна `win` отримала коректний числовий ID
     local win = vim.api.nvim_open_win(buf, true, {
         relative = "editor",
         width = width,
@@ -75,28 +173,29 @@ local function create_selection_window(items, target_win, target_buf, search_que
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "wipe"
 
-    -- Налаштування вікна
     vim.wo[win].number = false
     vim.wo[win].relativenumber = false
     vim.wo[win].cursorline = true
     vim.wo[win].signcolumn = "no"
 
-    -- 2. ТУТ створюємо автокоманду ПІСЛЯ створення вікна (те `win` вже існує)
     vim.api.nvim_create_autocmd("CursorMoved", {
         buffer = buf,
         callback = function()
-            if not vim.api.nvim_win_is_valid(win) then return end
+            if not vim.api.nvim_win_is_valid(win) then
+                return
+            end
+
             local cur = vim.api.nvim_win_get_cursor(win)[1]
             local total = #items
             local new_footer = string.format(" [%d/%d] │ <Space>: обрати │ <CR>: вставити │ q: вихід ", cur, total)
+
             vim.api.nvim_win_set_config(win, {
                 footer = new_footer,
-                footer_pos = "center"
+                footer_pos = "center",
             })
         end,
     })
-    
-    -- Додаємо підсвітку іскомого слова/РНОКПП у вікні результатів
+
     if search_query and search_query ~= "" then
         local ns_id = vim.api.nvim_create_namespace("awards53_search_highlight")
         vim.cmd("highlight default link Awards53Match IncSearch")
@@ -120,6 +219,7 @@ local function create_selection_window(items, target_win, target_buf, search_que
             else
                 line = line:gsub("%[x%]", "[ ]", 1)
             end
+
             vim.api.nvim_buf_set_lines(buf, cur_row - 1, cur_row, false, { line })
             if cur_row < #formatted_items then
                 vim.api.nvim_win_set_cursor(win, { cur_row + 1, 0 })
@@ -150,14 +250,16 @@ local function create_selection_window(items, target_win, target_buf, search_que
         if vim.api.nvim_win_is_valid(win) then
             vim.api.nvim_win_close(win, true)
         end
-        
+
         vim.cmd("echo ''")
 
-        if #selected_texts == 0 then return end
+        if #selected_texts == 0 then
+            return
+        end
 
         if vim.api.nvim_win_is_valid(target_win) and vim.api.nvim_buf_is_valid(target_buf) then
             vim.api.nvim_set_current_win(target_win)
-            
+
             if vim.bo[target_buf].modifiable then
                 local r, c = unpack(vim.api.nvim_win_get_cursor(target_win))
                 local cur_line = vim.api.nvim_buf_get_lines(target_buf, r - 1, r, false)[1] or ""
@@ -185,7 +287,7 @@ end
 function M.run_search()
     local state = require("awards53.state")
     local record = state.current_record()
-    
+
     local default_query = ""
     if record then
         local card_text = ""
@@ -196,6 +298,7 @@ function M.run_search()
                 card_text = card_text .. " " .. field_val
             end
         end
+
         local rnokpp_start, rnokpp_end = card_text:find("(%d%d%d%d%d%d%d%d%d%d)")
         if rnokpp_start then
             default_query = card_text:sub(rnokpp_start, rnokpp_end)
@@ -203,51 +306,52 @@ function M.run_search()
     end
 
     vim.ui.input({ prompt = "🔍 Пошук в ~/STATISTIKA/shtat: ", default = default_query }, function(input)
-        if not input or vim.trim(input) == "" then return end
+        if not input or vim.trim(input) == "" then
+            return
+        end
 
         local function proceed_with_password(gpg_password)
-            utils.info("⏳ Виконується пошук...")
-
             local target_win = vim.api.nvim_get_current_win()
             local target_buf = vim.api.nvim_win_get_buf(target_win)
 
-            vim.system(
+            run_search(
                 { SEARCHDOCS_PATH, input, SEARCH_DIR },
                 {
                     stdin = gpg_password ~= "" and (gpg_password .. "\n") or "\n",
                 },
-                function(obj)
-                    vim.schedule(function()
-                        if obj.code ~= 0 then
-                            cached_gpg_password = nil
-                            local err_msg = vim.trim(obj.stderr or "")
-                            if err_msg == "" then
-                                err_msg = "Невідома помилка виконання скрипта (код: " .. tostring(obj.code) .. ")"
-                            end
-                            utils.warn("❌ " .. err_msg)
-                            return
-                        end
+                "Пошук у STATISTIKA",
+                function(obj, progress)
+                    if obj.code ~= 0 then
+                        cached_gpg_password = nil
+                        finish_progress(progress, "❌ Пошук завершився з помилкою (код: " .. tostring(obj.code) .. ")", vim.log.levels.ERROR)
 
-                        local result = obj.stdout
-                        if not result or vim.trim(result) == "" then
-                            utils.warn("⚠️ Нічого не знайдено за запитом: " .. input)
-                            return
+                        local err_msg = vim.trim(obj.stderr or "")
+                        if err_msg ~= "" then
+                            utils.warn(err_msg)
                         end
+                        return
+                    end
 
-                        local items = {}
-                        for line in result:gmatch("[^\r\n]+") do
-                            if vim.trim(line) ~= "" then
-                                table.insert(items, vim.trim(line))
-                            end
+                    local result = obj.stdout
+                    if not result or vim.trim(result) == "" then
+                        finish_progress(progress, "⚠️ Пошук завершено: нічого не знайдено", vim.log.levels.WARN)
+                        return
+                    end
+
+                    local items = {}
+                    for line in result:gmatch("[^\\r\\n]+") do
+                        if vim.trim(line) ~= "" then
+                            table.insert(items, vim.trim(line))
                         end
+                    end
 
-                        if #items == 0 then
-                            utils.warn("⚠️ Нічого не знайдено.")
-                            return
-                        end
+                    if #items == 0 then
+                        finish_progress(progress, "⚠️ Пошук завершено: нічого не знайдено", vim.log.levels.WARN)
+                        return
+                    end
 
-                        create_selection_window(items, target_win, target_buf, input, SEARCH_DIR)
-                    end)
+                    finish_progress(progress, "✅ Пошук завершено: знайдено " .. #items .. " результатів")
+                    create_selection_window(items, target_win, target_buf, input, SEARCH_DIR)
                 end
             )
         end
@@ -259,9 +363,11 @@ function M.run_search()
             local prompt_text = string.format("🔑 [%s] Введіть GPG пароль для розшифрування: ", layout)
             local gpg_password = vim.fn.inputsecret(prompt_text)
             print("")
+
             if gpg_password ~= "" then
                 cached_gpg_password = gpg_password
             end
+
             proceed_with_password(gpg_password)
         end
     end)
@@ -274,7 +380,7 @@ end
 function M.run_sql_search()
     local state = require("awards53.state")
     local record = state.current_record()
-    
+
     local default_query = ""
     if record then
         local card_text = ""
@@ -285,6 +391,7 @@ function M.run_sql_search()
                 card_text = card_text .. " " .. field_val
             end
         end
+
         local rnokpp_start, rnokpp_end = card_text:find("(%d%d%d%d%d%d%d%d%d%d)")
         if rnokpp_start then
             default_query = card_text:sub(rnokpp_start, rnokpp_end)
@@ -297,48 +404,47 @@ function M.run_sql_search()
         end
 
         local function proceed_with_sql_password(db_password)
-            utils.info("⏳ Виконується запит до бази даних...")
-
             local target_win = vim.api.nvim_get_current_win()
             local target_buf = vim.api.nvim_win_get_buf(target_win)
 
-            vim.system(
+            run_search(
                 { SEARCHSQL_PATH, input, DB_PATH },
                 {
                     stdin = db_password ~= "" and (db_password .. "\n") or "\n",
                 },
-                function(obj)
-                    vim.schedule(function()
-                        if obj.code ~= 0 then
-                            cached_db_password = nil
-                            local err_msg = vim.trim(obj.stderr or "")
-                            if err_msg == "" then
-                                err_msg = "Помилка виконання SQL-скрипта (код: " .. tostring(obj.code) .. ")"
-                            end
-                            utils.warn("❌ " .. err_msg)
-                            return
-                        end
+                "Пошук у базі SQLCipher",
+                function(obj, progress)
+                    if obj.code ~= 0 then
+                        cached_db_password = nil
+                        finish_progress(progress, "❌ SQL-пошук завершився з помилкою (код: " .. tostring(obj.code) .. ")", vim.log.levels.ERROR)
 
-                        local result = obj.stdout
-                        if not result or vim.trim(result) == "" then
-                            utils.warn("⚠️ Нічого не знайдено в базі даних.")
-                            return
+                        local err_msg = vim.trim(obj.stderr or "")
+                        if err_msg ~= "" then
+                            utils.warn(err_msg)
                         end
+                        return
+                    end
 
-                        local items = {}
-                        for line in result:gmatch("[^\r\n]+") do
-                            if vim.trim(line) ~= "" then
-                                table.insert(items, vim.trim(line))
-                            end
+                    local result = obj.stdout
+                    if not result or vim.trim(result) == "" then
+                        finish_progress(progress, "⚠️ SQL-пошук завершено: нічого не знайдено", vim.log.levels.WARN)
+                        return
+                    end
+
+                    local items = {}
+                    for line in result:gmatch("[^\\r\\n]+") do
+                        if vim.trim(line) ~= "" then
+                            table.insert(items, vim.trim(line))
                         end
+                    end
 
-                        if #items == 0 then
-                            utils.warn("⚠️ Нічого не знайдено.")
-                            return
-                        end
+                    if #items == 0 then
+                        finish_progress(progress, "⚠️ SQL-пошук завершено: нічого не знайдено", vim.log.levels.WARN)
+                        return
+                    end
 
-                        create_selection_window(items, target_win, target_buf, input, "БД SQLCipher")
-                    end)
+                    finish_progress(progress, "✅ SQL-пошук завершено: знайдено " .. #items .. " результатів")
+                    create_selection_window(items, target_win, target_buf, input, "БД SQLCipher")
                 end
             )
         end
@@ -350,13 +456,14 @@ function M.run_sql_search()
             local prompt_text = string.format("🔑 [%s] Введіть пароль бази даних (SQLCipher): ", layout)
             local db_password = vim.fn.inputsecret(prompt_text)
             print("")
+
             if db_password ~= "" then
                 cached_db_password = db_password
             end
+
             proceed_with_sql_password(db_password)
         end
     end)
 end
 
-label_end = true
 return M
