@@ -14,6 +14,19 @@ local mappings = require("awards53.mappings")
 M.body_buf = nil
 M.body_win = nil
 
+M.current_ranges = {}
+M.inline_ns = vim.api.nvim_create_namespace("awards53_inline_edit")
+
+M.inline_edit = {
+    active = false,
+    card_idx = nil,
+    field = nil,
+    start_row = nil,
+    end_mark = nil,
+    indent = "    ",
+    original_lines = nil,
+}
+
 local cfg = require("awards53")
 local NS_ID = cfg.ns_fields or vim.api.nvim_create_namespace("awards53_fields")
 local syntax_group = "Awards53ActiveField"
@@ -134,9 +147,34 @@ local function update_header_highlight()
     end
 end
 
-function M.redraw()
-    vim.bo.modified = state.is_changed
+local function render_body_with_ranges()
+    local header_lines = header.render()
+    local body_lines, ranges = body.render()
 
+    local full_lines = {}
+    vim.list_extend(full_lines, header_lines)
+    vim.list_extend(full_lines, body_lines)
+
+    local header_offset = #header_lines
+    local adjusted_ranges = {}
+
+    for f_name, r_data in pairs(ranges) do
+        adjusted_ranges[f_name] = {
+            start_row = r_data.start_row + header_offset,
+            end_row = r_data.end_row + header_offset,
+            indent = r_data.indent,
+        }
+    end
+
+    return full_lines, adjusted_ranges
+end
+
+function M.redraw()
+    if M.inline_edit and M.inline_edit.active then
+        return
+    end
+
+    vim.bo.modified = state.is_changed
     update_header_highlight()
 
     if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then
@@ -155,8 +193,11 @@ function M.redraw()
         saved_cursor = vim.api.nvim_win_get_cursor(M.body_win)
     end
 
+    local full_lines, ranges = render_body_with_ranges()
+    M.current_ranges = ranges
+
     vim.bo[M.body_buf].modifiable = true
-    vim.api.nvim_buf_set_lines(M.body_buf, 0, -1, false, render_body())
+    vim.api.nvim_buf_set_lines(M.body_buf, 0, -1, false, full_lines)
     vim.bo[M.body_buf].modifiable = false
 
     utils.highlight_rnokpp_in_buf(M.body_buf)
@@ -173,6 +214,7 @@ function M.redraw()
     update_ui_buffer_title()
     vim.cmd("redrawstatus!")
 end
+
 
 -- Вікно історії змін (Undotree) з Diff
 function M.open_undotree_window()
@@ -509,17 +551,21 @@ local function bind_keys()
         ["]m"]  = { function() return state.next_bookmark() end, true },
         ["[m"]  = { function() return state.prev_bookmark() end, true },
 
-        ["i"]   = { function()
-            local editor_mod = require("awards53.editor")
-            if editor_mod.win and vim.api.nvim_win_is_valid(editor_mod.win) then
-                vim.api.nvim_set_current_win(editor_mod.win)
-                return
-            end
-            state.set_mode("INSERT")
-            M.redraw()
-            editor_mod.open()
-        end, false },
+        ["i"] = {
+            function()
+                M.start_inline_edit()
+            end,
+            false,
+        },
 
+        ["I"] = {
+            function()
+                state.set_mode("INSERT")
+                editor.open()
+            end,
+            false,
+        },
+        
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false },
 
         ["F"]   = { function() if state.new_field() then M.redraw() utils.info("Додано нове поле №" .. state.field_name()) end end, false },
@@ -592,6 +638,187 @@ local function bind_keys()
     }
 
     mappings.bind_buffer_keymaps(M.body_buf, keymaps, "n")
+end
+
+local function set_inline_keymaps()
+    local opts = {
+        buffer = M.body_buf,
+        silent = true,
+        nowait = true,
+        noremap = true,
+    }
+
+    vim.keymap.set("i", "<Esc>", function()
+        vim.cmd("stopinsert")
+        M.commit_inline_edit()
+    end, opts)
+
+    vim.keymap.set({ "i", "n" }, "<C-c>", function()
+        vim.cmd("stopinsert")
+        M.cancel_inline_edit()
+    end, opts)
+end
+
+local function clear_inline_keymaps()
+    pcall(vim.keymap.del, "i", "<Esc>", { buffer = M.body_buf })
+    pcall(vim.keymap.del, "n", "<Esc>", { buffer = M.body_buf })
+    pcall(vim.keymap.del, "i", "<C-c>", { buffer = M.body_buf })
+    pcall(vim.keymap.del, "n", "<C-c>", { buffer = M.body_buf })
+end
+
+function M.start_inline_edit()
+    if M.inline_edit.active then
+        return
+    end
+
+    if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then
+        return
+    end
+
+    local win = M.body_win
+    if not win or not vim.api.nvim_win_is_valid(win) then
+        return
+    end
+
+    local card_idx = state.index()
+    local field = state.field_name()
+    local range = M.current_ranges[field]
+
+    if not range then
+        utils.warn("Не вдалося визначити межі поля для inline-редагування")
+        return
+    end
+
+    local raw_lines = vim.api.nvim_buf_get_lines(M.body_buf, range.start_row, range.end_row + 1, false)
+    local stripped_lines = {}
+
+    for _, line in ipairs(raw_lines) do
+        table.insert(stripped_lines, (line:gsub("^" .. range.indent, "", 1)))
+    end
+
+    vim.bo[M.body_buf].modifiable = true
+    vim.api.nvim_buf_set_lines(M.body_buf, range.start_row, range.end_row + 1, false, stripped_lines)
+
+    local line_count = vim.api.nvim_buf_line_count(M.body_buf)
+    local boundary_row = math.min(range.end_row + 1, math.max(0, line_count - 1))
+
+    local end_mark = vim.api.nvim_buf_set_extmark(
+        M.body_buf,
+        M.inline_ns,
+        boundary_row,
+        0,
+        {
+            right_gravity = false,
+            invalidate = false,
+        }
+    )
+
+    M.inline_edit = {
+        active = true,
+        card_idx = card_idx,
+        field = field,
+        start_row = range.start_row,
+        end_mark = end_mark,
+        indent = range.indent,
+        original_lines = vim.deepcopy(raw_lines),
+    }
+
+    set_inline_keymaps()
+
+    vim.api.nvim_set_current_win(win)
+    vim.api.nvim_win_set_cursor(win, { range.start_row + 1, 0 })
+
+    state.set_mode("INSERT")
+    vim.cmd("startinsert!")
+end
+
+function M.commit_inline_edit()
+    if not M.inline_edit.active then
+        return
+    end
+
+    local card_idx = M.inline_edit.card_idx
+    local field = M.inline_edit.field
+    local start_row = M.inline_edit.start_row
+
+    local mark_pos = vim.api.nvim_buf_get_extmark_by_id(
+        M.body_buf,
+        M.inline_ns,
+        M.inline_edit.end_mark,
+        {}
+    )
+
+    if not mark_pos or not mark_pos[1] then
+        utils.warn("Не вдалося визначити кінець inline-поля")
+        return
+    end
+
+    local end_row = mark_pos[1]
+    local edited_lines = vim.api.nvim_buf_get_lines(
+        M.body_buf,
+        start_row,
+        end_row,
+        false
+    )
+
+    while #edited_lines > 0 and vim.trim(edited_lines[#edited_lines]) == "" do
+        table.remove(edited_lines)
+    end
+
+    if #edited_lines == 0 then
+        edited_lines = { "" }
+    end
+
+    local record = state.records[card_idx]
+    if record then
+        state.snapshot()
+        record[field] = edited_lines
+    end
+
+    M.inline_edit.active = false
+    vim.bo[M.body_buf].modifiable = false
+
+    M.cleanup_inline_state()
+
+    state.set_mode("NORMAL")
+    state.sync_to_disk()
+    M.redraw()
+
+    utils.info(string.format("Поле '%s' збережено", field))
+end
+
+function M.cancel_inline_edit()
+    if not M.inline_edit.active then
+        return
+    end
+
+    local was_active = M.inline_edit.active
+    M.inline_edit.active = false
+    vim.bo[M.body_buf].modifiable = false
+
+    M.cleanup_inline_state()
+
+    if was_active then
+        state.set_mode("NORMAL")
+        M.redraw()
+    end
+
+utils.info("Зміни inline-поля скасовано")
+end
+
+function M.cleanup_inline_state()
+    if M.inline_edit.end_mark then
+        pcall(vim.api.nvim_buf_del_extmark, M.body_buf, M.inline_ns, M.inline_edit.end_mark)
+        M.inline_edit.end_mark = nil
+    end
+
+    clear_inline_keymaps()
+
+    M.inline_edit.card_idx = nil
+    M.inline_edit.field = nil
+    M.inline_edit.start_row = nil
+    M.inline_edit.indent = "    "
+    M.inline_edit.original_lines = nil
 end
 
 function M.open()

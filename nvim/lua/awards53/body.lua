@@ -10,65 +10,90 @@ local function hr(target_width)
 end
 
 function M.render()
-    local record = state.current_record()
     local lines = {}
-    
+    local ranges = {}
+
+    local record = state.current_record()
+    if not record then
+        return lines, ranges
+    end
+
+    local headers = state.headers_list()
+    local current_field = state.field_name()
+    local indent = "    "
+
     table.insert(lines, "")
 
-    for i, field in ipairs(state.headers_list()) do
-        local is_active = (i == state.field_index())
+    for i, field in ipairs(headers) do
+        local is_active = (field == current_field)
+        local value = record[field] or {}
+        local value_lines = {}
+
+        if type(value) == "table" then
+            value_lines = value
+        else
+            value_lines = { tostring(value) }
+        end
 
         if is_active then
-            local total_fields = #state.headers_list()
-            local header_text = string.format(" 󰓻 Поле %s/%d     j▲ k▼ #f    🖊:i► F-    ⇊:J/K    B 0    ", field, total_fields)
-            
-            -- Рахуємо довжину для активного поля теж, щоб не було nil
-            local current_hr_width = vim.fn.strdisplaywidth(header_text)
+            local total_fields = #headers
+            local header_text = string.format(
+                " 󰓻 Поле %s/%d     j▲ k▼ #f    🖊:i► inline / I► editor    ⇊:J/K    B 0    ",
+                field,
+                total_fields
+            )
 
             table.insert(lines, "")
             table.insert(lines, header_text)
 
-            local value = record[field] or {}
+            local start_row = #lines
 
-            if type(value) == "table" then
-                for _, line in ipairs(value) do
-                    table.insert(lines, "    " .. line)
-                end
-                --table.insert(lines, hr(current_hr_width))
-                table.insert(lines, "")
+            if #value_lines == 0 then
+                table.insert(lines, indent .. "")
             else
-                table.insert(lines, "    " .. tostring(value))
-                --table.insert(lines, hr(current_hr_width))
+                for _, line in ipairs(value_lines) do
+                    table.insert(lines, indent .. line)
+                end
             end
+
+            local end_row = #lines - 1
+
+            ranges[field] = {
+                start_row = start_row,
+                end_row = end_row,
+                indent = indent,
+            }
 
             table.insert(lines, "")
         else
-            -- 1. Створюємо рядок заголовка неактивного поля
             local header_line = "[" .. field .. "]"
             table.insert(lines, header_line)
-            
-            -- 2. Рахуємо його реальну довжину в символах за допомогою #
-            local current_hr_width = vim.fn.strdisplaywidth(header_line)
-            
-            local value = record[field] or {}
 
-            -- Вміст поля
-            if type(value) == "table" then
-                for _, line in ipairs(value) do
-                    table.insert(lines, "    " .. line)
-                end
-                -- 3. Вставляємо лінію нижче з отриманою довжиною
-                table.insert(lines, hr(current_hr_width))
+            local start_row = #lines
+
+            if #value_lines == 0 then
+                table.insert(lines, indent .. "")
             else
-                table.insert(lines, "    " .. tostring(value))
-                table.insert(lines, hr(current_hr_width))
+                for _, line in ipairs(value_lines) do
+                    table.insert(lines, indent .. line)
+                end
             end
 
+            local end_row = #lines - 1
+
+            ranges[field] = {
+                start_row = start_row,
+                end_row = end_row,
+                indent = indent,
+            }
+
+            local current_hr_width = vim.fn.strdisplaywidth(header_line)
+            table.insert(lines, hr(current_hr_width))
             table.insert(lines, "")
         end
     end
- 
-    return lines
+
+    return lines, ranges
 end
 
 return M

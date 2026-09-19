@@ -2,13 +2,16 @@
 --
 local M = {}
 
+M.buf = nil -- Поточний буфер редактора
+M.win = nil -- Поточне вікно редактора
+
+M.help_buf = nil -- Буфер підказок
+M.help_win = nil -- Вікно підказок внизу
+
 local state = require("awards53.state")
 local utils = require("awards53.utils")
 local actions = require("awards53.actions")
 local search_module = require("awards53.searchtxt")
-
-M.help_buf = nil -- Буфер підказок
-M.help_win = nil -- Вікно підказок внизу
 
 local help_lines = {
     " Поле: R/X - Автоформат [тут/всюди], S/Е - Сплющити текст [тут/всюди] || Дані: f/a - Шукати [файл/sql*], c - Скинути пароль",
@@ -193,6 +196,8 @@ function M.open()
         end
 
         vim.api.nvim_win_set_buf(0, existing_buf)
+        M.win = vim.api.nvim_get_current_win()
+        M.buf = existing_buf
         setup_help_window()
         return
     end
@@ -200,7 +205,10 @@ function M.open()
     local buf = vim.api.nvim_create_buf(true, false)
     vim.api.nvim_win_set_buf(0, buf)
     local win = vim.api.nvim_get_current_win()
-
+    
+    M.buf = buf 
+    M.win = win 
+    
     vim.b[buf].card_idx = card_idx
     vim.b[buf].field_name = field
     vim.b[buf].field_idx = field_idx
@@ -278,6 +286,12 @@ function M.open()
         close_help_window()
         state.opened_editors[key] = nil
 
+        -- Очищаем ссылки на окно и буфер, если закрываем текущий редактор
+        if M.buf == buf then M.buf = nil end
+        if M.win and vim.api.nvim_win_is_valid(M.win) and vim.api.nvim_win_get_buf(M.win) == buf then
+            M.win = nil
+        end
+        
         local ui = require("awards53.ui")
         ui.close_editor()
 
@@ -333,6 +347,8 @@ function M.open()
         buffer = buf,
         group = group,
         callback = function()
+            M.buf = buf
+            M.win = vim.api.nvim_get_current_win()
             setup_help_window()
         end,
     })
@@ -344,6 +360,11 @@ function M.open()
             close_help_window()
             state.opened_editors[key] = nil
             state.set_mode("NORMAL")
+
+            if M.buf == buf then M.buf = nil end
+            if M.win and vim.api.nvim_win_is_valid(M.win) and vim.api.nvim_win_get_buf(M.win) == buf then
+                M.win = nil
+            end
 
             if not state.is_changed then
                 local src = state.get_source_buffer()
