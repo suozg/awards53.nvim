@@ -642,14 +642,7 @@ end
 
 local function clear_inline_field_highlights(start_row, end_row)
     -- Удаляет все временные подсветки полей из inline-буфера.
-    -- Используется:
-        -- перед входом в inline-режим;
-        -- после выхода из inline-режима;
-        -- при отмене редактирования.
-    -- Почему нужен: 
-    -- во время inline-редактирования структура строки временно меняется
-    -- — отступы и служебные символы поля убираются. 
-    -- Старые extmark-подсветки могут остаться на прежнем месте.
+    -- Используется перед входом в inline-режим;
     if not M.body_buf or not vim.api.nvim_buf_is_valid(M.body_buf) then
         return
     end
@@ -891,7 +884,6 @@ function M.commit_inline_edit()
         vim.bo[M.body_buf].modifiable = false
         M.cleanup_inline_state()
         state.set_mode("NORMAL")
-        clear_inline_highlights()
         M.redraw()
         utils.warn("Не вдалося визначити кінець inline-поля")
         return
@@ -919,7 +911,6 @@ function M.commit_inline_edit()
         vim.bo[M.body_buf].modifiable = false
         M.cleanup_inline_state()
         state.set_mode("NORMAL")
-        clear_inline_highlights()
         M.redraw()
         utils.warn("Картка для inline-редагування більше не існує")
         return
@@ -950,7 +941,6 @@ function M.commit_inline_edit()
         ))
     end
 end
-
 
 function M.cancel_inline_edit()
     -- Он похож на commit_inline_edit(), но не сохраняет изменения.
