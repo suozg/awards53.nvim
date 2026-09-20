@@ -339,11 +339,12 @@ function M.run_search()
                     end
 
                     local items = {}
-                    for line in result:gmatch("[^\\r\\n]+") do
-                        if vim.trim(line) ~= "" then
-                            table.insert(items, vim.trim(line))
+                    for _, line in ipairs(vim.split(result, "\n", { trimempty = true })) do
+                        line = vim.trim(line)
+                        if line ~= "" then
+                            table.insert(items, line)
                         end
-                    end
+                    end                    
 
                     if #items == 0 then
                         finish_progress(progress, "⚠️ Пошук завершено: нічого не знайдено", vim.log.levels.WARN)
@@ -432,11 +433,12 @@ function M.run_sql_search()
                     end
 
                     local items = {}
-                    for line in result:gmatch("[^\\r\\n]+") do
-                        if vim.trim(line) ~= "" then
-                            table.insert(items, vim.trim(line))
+                    for _, line in ipairs(vim.split(result, "\n", { trimempty = true })) do
+                        line = vim.trim(line)
+                        if line ~= "" then
+                            table.insert(items, line)
                         end
-                    end
+                    end                    
 
                     if #items == 0 then
                         finish_progress(progress, "⚠️ SQL-пошук завершено: нічого не знайдено", vim.log.levels.WARN)
