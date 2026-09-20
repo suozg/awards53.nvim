@@ -39,53 +39,118 @@ function M.clean_invisible_chars(text)
     return text
 end
 
+
+local function rnokpp_birth_date(rnokpp)
+    if not rnokpp or #rnokpp ~= 10 then
+        return nil
+    end
+
+    local days = tonumber(rnokpp:sub(1, 5))
+    if not days then
+        return nil
+    end
+
+    local base_time = os.time({ year = 1899, month = 12, day = 31, hour = 12 })
+    local birth_time = base_time + (days * 86400)
+    local t = os.date("*t", birth_time)
+
+    if not t or not t.year or not t.month or not t.day then
+        return nil
+    end
+
+    return string.format("%02d.%02d.%04d", t.day, t.month, t.year)
+end
+
 function M.highlight_rnokpp_in_buf(buf)
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then return end
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+        return
+    end
 
     local ns_id = cfg.ns_rnokpp or vim.api.nvim_create_namespace("awards53_rnokpp")
     vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
-    
+
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
     local weights = { -1, 5, 7, 9, 4, 6, 10, 5, 7 }
 
     for line_idx, line in ipairs(lines) do
         local start_pos = 1
+
         while start_pos <= #line do
-            -- Шукаємо максимальну послідовність цифр (від 6 до 10 штук)
-            -- Шукаємо спочатку 10, потім зменшуємо до 6 через шаблон або перевірку довжини.
-            -- Найпростіше знайти 6 цифр, а далі захопити всі суміжні цифри.
             local init_match, end_match = line:find("%d%d%d%d%d%d%d?%d?%d?%d?", start_pos)
-            if not init_match then break end
+            if not init_match then
+                break
+            end
 
             local before = line:sub(init_match - 1, init_match - 1)
             local after = line:sub(end_match + 1, end_match + 1)
-            
+
             if not before:match("%d") and not after:match("%d") then
                 local match = line:sub(init_match, end_match)
                 local match_len = #match
-                
-                -- Перевіряємо довжину: якщо від 6 до 9 — це помилка (менше 10)
+
                 if match_len >= 6 and match_len < 10 then
-                    vim.api.nvim_buf_add_highlight(buf, ns_id, "Awards53RnokppError", line_idx - 1, init_match - 1, end_match)
+                    vim.api.nvim_buf_add_highlight(
+                        buf,
+                        ns_id,
+                        "Awards53RnokppError",
+                        line_idx - 1,
+                        init_match - 1,
+                        end_match
+                    )
+
                 elseif match_len == 10 then
-                    -- Стандартна перевірка для 10-значних
                     local digits = {}
-                    for i = 1, 10 do 
-                        table.insert(digits, tonumber(match:sub(i, i))) 
+                    for i = 1, 10 do
+                        digits[i] = tonumber(match:sub(i, i))
                     end
 
                     local k1 = 0
-                    for i = 1, 9 do 
-                        k1 = k1 + (digits[i] * weights[i]) 
+                    for i = 1, 9 do
+                        k1 = k1 + (digits[i] * weights[i])
                     end
+
                     local checksum = k1 % 11
-                    if checksum == 10 then checksum = 0 end
+                    if checksum == 10 then
+                        checksum = 0
+                    end
 
                     if checksum ~= digits[10] then
-                        vim.api.nvim_buf_add_highlight(buf, ns_id, "Awards53RnokppError", line_idx - 1, init_match - 1, end_match)
+                        vim.api.nvim_buf_add_highlight(
+                            buf,
+                            ns_id,
+                            "Awards53RnokppError",
+                            line_idx - 1,
+                            init_match - 1,
+                            end_match
+                        )
+                    else
+                        vim.api.nvim_buf_add_highlight(
+                            buf,
+                            ns_id,
+                            "Awards53Rnokpp",
+                            line_idx - 1,
+                            init_match - 1,
+                            end_match
+                        )
+
+                        local birth_date = rnokpp_birth_date(match)
+                        if birth_date then
+                            vim.api.nvim_buf_set_extmark(
+                                buf,
+                                ns_id,
+                                line_idx - 1,
+                                end_match,
+                                {
+                                    virt_text = { { " 󰃭 " .. birth_date, "Comment" } },
+                                    virt_text_pos = "inline",
+                                    hl_mode = "combine",
+                                    priority = 1000,
+                                }
+                            )
+                        end
                     end
                 end
-                
+
                 start_pos = end_match + 1
             else
                 start_pos = init_match + 1
@@ -93,6 +158,7 @@ function M.highlight_rnokpp_in_buf(buf)
         end
     end
 end
+
 
 function M.is_section(line)
     local section = vim.pesc(cfg.config.section)
