@@ -234,6 +234,8 @@ function M.open()
     local wo = vim.wo[win]
     wo.spell, wo.statusline = true, "%!v:lua.require'awards53.editor'.render_status()"
 
+    wo.cursorline = true
+    
     setup_help_window()
 
     local group = vim.api.nvim_create_augroup("Awards53Editor_" .. buf, { clear = true })

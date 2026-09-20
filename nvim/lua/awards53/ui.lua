@@ -640,13 +640,95 @@ local function bind_keys()
     mappings.bind_buffer_keymaps(M.body_buf, keymaps, "n")
 end
 
+local function clear_inline_field_highlights(start_row, end_row)
+    -- Удаляет все временные подсветки полей из inline-буфера.
+    -- Используется:
+        -- перед входом в inline-режим;
+        -- после выхода из inline-режима;
+        -- при отмене редактирования.
+    -- Почему нужен: 
+    -- во время inline-редактирования структура строки временно меняется
+    -- — отступы и служебные символы поля убираются. 
+    -- Старые extmark-подсветки могут остаться на прежнем месте.
+    if not M.body_buf or not vim.api.nvim_buf_is_valid(M.body_buf) then
+        return
+    end
+
+    if start_row == nil or end_row == nil then
+        return
+    end
+
+    -- Очищаем только содержимое поля.
+    -- Строка индикатора находится выше и не затрагивается.
+    vim.api.nvim_buf_clear_namespace(
+        M.body_buf,
+        NS_ID,
+        start_row,
+        end_row + 1
+    )
+end
+
+    
+local function keep_cursor_inside_inline_field()
+    -- функція забороняє курсору виходити за межі поля inline
+    if not M.inline_edit.active then
+        return
+    end
+
+    local win = M.body_win
+    if not win or not vim.api.nvim_win_is_valid(win) then
+        return
+    end
+
+    if not M.body_buf or not vim.api.nvim_buf_is_valid(M.body_buf) then
+        return
+    end
+
+    if not M.inline_edit.end_mark then
+        return
+    end
+
+    local mark_pos = vim.api.nvim_buf_get_extmark_by_id(
+        M.body_buf,
+        M.inline_ns,
+        M.inline_edit.end_mark,
+        {}
+    )
+
+    if not mark_pos or not mark_pos[1] then
+        return
+    end
+
+    local min_row = M.inline_edit.start_row or 0
+    local max_row = math.max(min_row, mark_pos[1] - 1)
+
+    local cursor = vim.api.nvim_win_get_cursor(win)
+    local row = math.min(math.max(cursor[1] - 1, min_row), max_row)
+
+    if row ~= cursor[1] - 1 then
+        vim.api.nvim_win_set_cursor(win, { row + 1, cursor[2] })
+    end
+end
+
 local function set_inline_keymaps()
+    -- Включает специальные клавиши и autocmd только 
+    -- на время inline-редактирования.
     local opts = {
         buffer = M.body_buf,
         silent = true,
         nowait = true,
         noremap = true,
     }
+
+    local group = vim.api.nvim_create_augroup("Awards53InlineCursorLock", { clear = true })
+
+    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+        group = group,
+        buffer = M.body_buf,
+        callback = function()
+            keep_cursor_inside_inline_field()
+        end,
+    })
 
     vim.keymap.set("i", "<Esc>", function()
         vim.cmd("stopinsert")
@@ -660,6 +742,10 @@ local function set_inline_keymaps()
 end
 
 local function clear_inline_keymaps()
+    -- Отключает всё, что было включено функцией set_inline_keymaps().
+
+    pcall(vim.api.nvim_del_augroup_by_name, "Awards53InlineCursorLock")
+
     pcall(vim.keymap.del, "i", "<Esc>", { buffer = M.body_buf })
     pcall(vim.keymap.del, "n", "<Esc>", { buffer = M.body_buf })
     pcall(vim.keymap.del, "i", "<C-c>", { buffer = M.body_buf })
@@ -667,6 +753,19 @@ local function clear_inline_keymaps()
 end
 
 function M.start_inline_edit()
+    -- Запускает inline-редактирование.
+    -- Проверяет, что inline-режим ещё не активен.
+    -- Находит текущую карточку и поле.
+    -- Получает границы поля.
+    -- Убирает старые подсветки.
+    -- Убирает служебные отступы из текста.
+    -- Делает буфер временно изменяемым.
+    -- Создаёт end_mark, который отмечает конец поля.
+    -- Сохраняет состояние в M.inline_edit.
+    -- Включает ограничения курсора и специальные клавиши.
+    -- Ставит курсор в начало поля.
+    -- Переходит в Insert mode.
+
     if M.inline_edit.active then
         return
     end
@@ -689,7 +788,17 @@ function M.start_inline_edit()
         return
     end
 
-    local raw_lines = vim.api.nvim_buf_get_lines(M.body_buf, range.start_row, range.end_row + 1, false)
+    clear_inline_field_highlights(
+        range.start_row,
+        range.end_row
+    )
+
+    local raw_lines = vim.api.nvim_buf_get_lines(
+        M.body_buf, 
+        range.start_row,
+        range.end_row + 1,
+        false
+    )
     local stripped_lines = {}
 
     for _, line in ipairs(raw_lines) do
@@ -732,7 +841,22 @@ function M.start_inline_edit()
     vim.cmd("startinsert!")
 end
 
+
 function M.commit_inline_edit()
+    -- Сохраняет результат inline-редактирования.
+    -- Проверяет, что inline-режим активен.
+    -- Находит конец изменяемого поля через end_mark.
+    -- Получает новые строки поля.
+    -- Удаляет пустые строки в конце.
+    -- Записывает результат в state.records.
+    -- Создаёт снимок для undo.
+    -- Завершает inline-режим.
+    -- Отключает временные mapping-и.
+    -- Синхронизирует данные с диском/исходным буфером.
+    -- Очищает старые подсветки.
+    -- Вызывает M.redraw(), чтобы заново правильно отрисовать поле.
+    -- Вызывается клавишей <Esc>.
+    
     if not M.inline_edit.active then
         return
     end
@@ -767,8 +891,8 @@ function M.commit_inline_edit()
         vim.bo[M.body_buf].modifiable = false
         M.cleanup_inline_state()
         state.set_mode("NORMAL")
+        clear_inline_highlights()
         M.redraw()
-
         utils.warn("Не вдалося визначити кінець inline-поля")
         return
     end
@@ -795,11 +919,12 @@ function M.commit_inline_edit()
         vim.bo[M.body_buf].modifiable = false
         M.cleanup_inline_state()
         state.set_mode("NORMAL")
+        clear_inline_highlights()
         M.redraw()
         utils.warn("Картка для inline-редагування більше не існує")
         return
     end
- 
+
     state.snapshot()
     record[field] = edited_lines
 
@@ -810,11 +935,12 @@ function M.commit_inline_edit()
 
     state.set_mode("NORMAL")
     local synced = state.sync_to_disk()
+
     M.redraw()
- 
+
     if synced then
         utils.info(string.format(
-            "Поле '%s' оновлено в редакторі. Для запису на диск використайте :W",
+            "Поле '%s' оновлено в редакторі. Для запису на диск натисніть :w",
             field
         ))
     else
@@ -825,28 +951,39 @@ function M.commit_inline_edit()
     end
 end
 
+
 function M.cancel_inline_edit()
+    -- Он похож на commit_inline_edit(), но не сохраняет изменения.
+    -- При нажатии <C-c> он:
+    -- Завершает inline-режим.
+    -- Отключает временные mapping-и.
+    -- Очищает подсветку.
+    -- Вызывает M.redraw().
+    -- Возвращает исходное состояние данных.
     if not M.inline_edit.active then
         return
     end
 
-    local was_active = M.inline_edit.active
     M.inline_edit.active = false
     vim.bo[M.body_buf].modifiable = false
 
     M.cleanup_inline_state()
 
-    if was_active then
-        state.set_mode("NORMAL")
-        M.redraw()
-    end
+    state.set_mode("NORMAL")
+    M.redraw()
 
-utils.info("Зміни inline-поля скасовано")
+    utils.info("Зміни inline-поля скасовано")
 end
-
+    
 function M.cleanup_inline_state()
     if M.inline_edit.end_mark then
-        pcall(vim.api.nvim_buf_del_extmark, M.body_buf, M.inline_ns, M.inline_edit.end_mark)
+        pcall(
+            vim.api.nvim_buf_del_extmark,
+            M.body_buf,
+            M.inline_ns,
+            M.inline_edit.end_mark
+        )
+
         M.inline_edit.end_mark = nil
     end
 
@@ -876,7 +1013,7 @@ function M.open()
 
         update_ui_buffer_title()
 
-        -- Робота з курсором
+        -- обробка виду курсору - щоб він був в inline і зникав при виході
         local orig_guicursor = vim.o.guicursor
         local cursor_grp = vim.api.nvim_create_augroup("Awards53HiddenCursorToggle", { clear = true })
 
@@ -884,7 +1021,7 @@ function M.open()
             buffer = M.body_buf,
             group = cursor_grp,
             callback = function()
-                vim.o.guicursor = "n-v-c:block-Awards53HiddenCursor"
+                vim.o.guicursor = "n-v-c:block-Awards53HiddenCursor,i:ver25"
             end,
         })
 
@@ -1010,10 +1147,16 @@ function M.open()
     M.body_win = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(M.body_win, M.body_buf)
     vim.wo[M.body_win].statusline = "%!v:lua.require'awards53.status'.render()"
+
     local wo = vim.wo[M.body_win]
-    wo.number, wo.relativenumber, wo.signcolumn, wo.colorcolumn = false, false, "no", ""
+    wo.number = false
+    wo.relativenumber = false
+    wo.signcolumn = "no"
+    wo.colorcolumn = ""
+    wo.cursorline = false
     wo.wrap = true
     wo.linebreak = true
+    
     M.redraw()
 end
 

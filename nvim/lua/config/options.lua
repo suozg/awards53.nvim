@@ -70,7 +70,7 @@ vim.api.nvim_create_autocmd("VimEnter", {
     if vim.fn.isdirectory(undo_dir) == 1 then
       -- Команда виконується асинхронно, щоб не уповільнювати запуск Neovim
       vim.fn.jobstart({
-        "find", undo_dir, "-type", "f", "-atime", "+90", "-delete"
+        "find", undo_dir, "-type", "f", "-atime", "+30", "-delete"
       })
     end
   end,

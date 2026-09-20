@@ -162,7 +162,7 @@ function M.render()
     )
 
     local operations =
-        "h◄ l► [[◀◀ ]]▶▶ #g │ " ..
+        "h◄ l► [[◀◀ ]]▶▶ #g m/[m]🔖 │ " ..
         "S O⇄ A dp✥ dd✗ y⎘ p󰆑 :w🖪 | u c-r U󰓦 | ? | :q⏻"
 
     return table.concat({
