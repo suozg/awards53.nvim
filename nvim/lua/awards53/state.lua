@@ -799,10 +799,16 @@ function M.new_field(default_value)
         for i = total_headers, insert_idx, -1 do
             record[tostring(i + 1)] = record[tostring(i)]
         end
+
         record[tostring(insert_idx)] = { val }
     end
 
-    table.insert(M.headers, tostring(total_headers + 1))
+    table.insert(M.headers, insert_idx, tostring(insert_idx))
+
+    -- Полностью нормализуем номера заголовков.
+    for i = 1, #M.headers do
+        M.headers[i] = tostring(i)
+    end
 
     M.field = insert_idx
     M.last_field = M.field
@@ -812,26 +818,43 @@ function M.new_field(default_value)
 end
 
 function M.delete_field()
-    if #M.headers <= 1 then return false end
-
-    M.snapshot()
+    if #M.headers <= 1 then
+        return false
+    end
 
     local idx = M.field
     local total = #M.headers
 
+    if idx < 1 or idx > total then
+        return false
+    end
+
+    M.snapshot()
+
+    -- Сдвигаем содержимое всех последующих полей влево.
     for _, record in ipairs(M.records) do
         for i = idx, total - 1 do
             record[tostring(i)] = record[tostring(i + 1)]
         end
+
+        -- Удаляем последнее поле.
         record[tostring(total)] = nil
     end
 
+    -- Удаляем заголовок.
     table.remove(M.headers, idx)
 
-    M.field = 1
-    M.last_field = 1
+    -- Перенумеровываем заголовки.
+    for i = 1, #M.headers do
+        M.headers[i] = tostring(i)
+    end
+
+    -- После удаления остаёмся на ближайшем существующем поле.
+    M.field = math.min(idx, #M.headers)
+    M.last_field = M.field
 
     M.sync_to_disk()
+
     return true
 end
 
