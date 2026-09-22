@@ -38,6 +38,15 @@ function M.move_to_fork()
     local dir = vim.fn.fnamemodify(current_file_path, ":h")
     local fork_path = dir .. "/fork.org"
 
+    -- Не можна переміщувати картку у той самий файл
+    local src_real = vim.fn.resolve(vim.fn.fnamemodify(current_file_path, ":p"))
+    local fork_real = vim.fn.resolve(vim.fn.fnamemodify(fork_path, ":p"))
+
+    if src_real == fork_real then
+        utils.warn("Картка вже знаходиться у fork.org")
+        return
+    end
+
     -- 3. Читаємо або створюємо fork.org
     local target_lines = {}
     local file_exists = vim.fn.filereadable(fork_path) == 1

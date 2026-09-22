@@ -26,6 +26,114 @@ M.last_search_field = nil
 M.opened_editors = {}
 M.bookmarks = {}
 
+
+-- ==========================================
+-- закладки
+-- ==========================================
+
+M.bookmarks = {}
+
+local bookmarks_file = vim.fn.stdpath("state") .. "/awards53/bookmarks.json"
+
+local function load_bookmarks()
+    M.bookmarks = {}
+
+    local src = M.source_buffer
+    if not src or not vim.api.nvim_buf_is_valid(src) then
+        return
+    end
+
+    local path = vim.api.nvim_buf_get_name(src)
+    if path == "" then
+        return
+    end
+
+    if vim.fn.filereadable(bookmarks_file) ~= 1 then
+        return
+    end
+
+    local lines = vim.fn.readfile(bookmarks_file)
+    if #lines == 0 then
+        return
+    end
+
+    local ok, data = pcall(vim.json.decode, table.concat(lines, "\n"))
+    if not ok or type(data) ~= "table" then
+        return
+    end
+
+    local saved = data[path]
+    if type(saved) ~= "table" then
+        return
+    end
+
+    for _, idx in ipairs(saved) do
+        idx = tonumber(idx)
+        if idx and idx >= 1 and idx <= #M.records then
+            M.bookmarks[idx] = true
+        end
+    end
+end
+
+local function save_bookmarks()
+    local src = M.source_buffer
+    if not src or not vim.api.nvim_buf_is_valid(src) then
+        return
+    end
+
+    local path = vim.api.nvim_buf_get_name(src)
+    if path == "" then
+        return
+    end
+
+    local dir = vim.fn.fnamemodify(bookmarks_file, ":h")
+    vim.fn.mkdir(dir, "p")
+
+    local data = {}
+
+    if vim.fn.filereadable(bookmarks_file) == 1 then
+        local lines = vim.fn.readfile(bookmarks_file)
+
+        if #lines > 0 then
+            local ok, decoded = pcall(
+                vim.json.decode,
+                table.concat(lines, "\n")
+            )
+
+            if ok and type(decoded) == "table" then
+                data = decoded
+            end
+        end
+    end
+
+    local saved = {}
+
+    for idx, marked in pairs(M.bookmarks) do
+        local num_idx = tonumber(idx)
+        if marked and num_idx then
+            table.insert(saved, num_idx)
+        end
+    end
+
+    table.sort(saved)
+    
+    if #saved > 0 then
+        data[path] = saved
+    else
+        data[path] = nil
+    end
+
+    local json = vim.json.encode(data)
+    local tmp = bookmarks_file .. ".tmp"
+
+    local ok = pcall(vim.fn.writefile, vim.split(json, "\n"), tmp)
+
+    if ok then
+        pcall(vim.loop.fs_unlink, bookmarks_file)
+        pcall(vim.loop.fs_rename, tmp, bookmarks_file)
+    end
+end
+
 -- ==========================================
 -- Синхронізація стану змін (Undo/Redo status)
 -- ==========================================
@@ -84,6 +192,8 @@ function M.reload_from_buffer()
     M.records = parsed.records or {}
     M.headers = parsed.headers or {}
 
+    load_bookmarks()
+    
     if M.records[1] and M.records[1]["1"] then
         local val = M.records[1]["1"]
         if type(val) == "table" then
@@ -236,9 +346,14 @@ end
 
 function M.set_source_buffer(buf)
     M.source_buffer = buf
+    M.bookmarks = {}
+
     if buf == nil then
         M.source_win = nil
+    else
+        load_bookmarks()
     end
+
     update_is_changed_status()
 end
 
@@ -294,9 +409,11 @@ function M.toggle_bookmark()
 
     if M.bookmarks[idx] then
         M.bookmarks[idx] = nil
+        save_bookmarks()
         utils.info("Закладку знято з картки № " .. idx)
     else
         M.bookmarks[idx] = true
+        save_bookmarks()
         utils.info("Встановлено закладку на картку № " .. idx)
     end
 
@@ -703,11 +820,12 @@ function M.set(data)
 
     M.records = data.records or {}
     M.headers = data.headers or {}
-    M.bookmarks = data.bookmarks or {}
 
     M.current = math.max(1, math.min(M.current or 1, math.max(1, #M.records)))
     M.field = math.max(1, math.min(M.field or 1, math.max(1, #M.headers)))
     M.current_mode = "NORMAL"
+
+    load_bookmarks()
 
     M.mark_as_clean()
     M.renumber()
@@ -747,11 +865,40 @@ function M.sort_by(field)
         return false
     end
 
+    -- 1. Зберігаємо посилання на поточну картку, щоб зберегти фокус після сортування
+    local current_rec = M.records[M.current]
+
+    -- 2. "Прив'язуємо" закладку до самого об'єкта картки
+    for i, rec in ipairs(M.records) do
+        rec._is_bookmarked = M.bookmarks[i] == true
+    end
+
+    -- 3. Виконуємо сортування масиву записів
     table.sort(M.records, function(a, b)
         return uk_cmp(norm(a[field]), norm(b[field]))
     end)
 
+    -- 4. Відновлюємо таблицю M.bookmarks з новими індексами та шукаємо нову позицію поточної картки
+    M.bookmarks = {}
+    local new_current = 1
+
+    for i, rec in ipairs(M.records) do
+        if rec._is_bookmarked then
+            M.bookmarks[i] = true
+            rec._is_bookmarked = nil -- Очищаємо тимчасове службове поле
+        end
+
+        if current_rec and rec == current_rec then
+            new_current = i
+        end
+    end
+
+    -- 5. Оновлюємо курсор та нумерацію
+    M.current = new_current
     M.renumber()
+
+    -- 6. Зберігаємо оновлені індекси закладок у JSON та синхронізуємо з диском
+    save_bookmarks()
     M.sync_to_disk()
 end
 
@@ -773,15 +920,36 @@ function M.new_record()
 end
 
 function M.delete_current()
-    if #M.records <= 1 then return false end
+    if #M.records <= 1 then
+        return false
+    end
 
     M.snapshot()
-    table.remove(M.records, M.current)
+
+    local deleted_idx = M.current
+    local new_bookmarks = {}
+
+    for idx, marked in pairs(M.bookmarks) do
+        if marked then
+            idx = tonumber(idx)
+
+            if idx < deleted_idx then
+                new_bookmarks[idx] = true
+            elseif idx > deleted_idx then
+                new_bookmarks[idx - 1] = true
+            end
+        end
+    end
+
+    table.remove(M.records, deleted_idx)
+
+    M.bookmarks = new_bookmarks
 
     M.current = math.min(M.current, #M.records)
     M.field = 1
 
     M.renumber()
+    save_bookmarks()
     M.sync_to_disk()
 
     return true
