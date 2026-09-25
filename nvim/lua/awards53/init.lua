@@ -1,7 +1,8 @@
 -- init.lua (Головний модуль ініціалізації плагіна awards53)
-
+local config = require("awards53.config")
 local M = {}
 local uv = vim.uv or vim.loop
+M.config = config.options
 
 local defaults = {
     separator = "::",
@@ -81,7 +82,8 @@ function M.setup(opts)
     local utils = require("awards53.utils")
     local state = require("awards53.state")
 
-    M.config = vim.tbl_deep_extend("force", defaults, opts or {})
+    config.setup(opts)
+    M.config = config.options
     local augroup = vim.api.nvim_create_augroup("Awards53", { clear = true })
 
     -- 1. Namespace & Highlights

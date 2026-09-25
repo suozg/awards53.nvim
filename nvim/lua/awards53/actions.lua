@@ -4,7 +4,7 @@ local M = {}
 
 local state = require("awards53.state") 
 local utils = require("awards53.utils") 
-local replacement = "53 окремої механізованої бригади імені князя Володимира Мономаха 3 армійського корпусу оперативного командування \"Схід\" Сухопутних військ Збройних Cил України" 
+local config = require("awards53.config") 
 
 -- ====================================================================
 -- Спільне ядро для форматування тексту однієї картки (публічне)
@@ -13,22 +13,28 @@ function M.format_text_core(text)
     local rnokpp_start, rnokpp_end = text:find("(%d%d%d%d%d%d%d%d%d%d)")
     if not rnokpp_start then return nil end
 
+    local replacement = config.options.replacement or ""
+    local patterns = config.options.replacement_patterns or {}
+    local unit_num = config.options.unit_number or "53"
+
     local rnokpp = text:sub(rnokpp_start, rnokpp_end)
     local before = text:sub(1, rnokpp_start - 1)
     local after  = text:sub(rnokpp_end + 1)
- 
+
     before = before:gsub("[%s%,%.%;%-]+$", "")
     local new_text = before .. "\n" .. rnokpp .. after
 
-    -- 1. Проводимо базові заміни бригади/вч
-    new_text = new_text:gsub("53%s+окремої%s+.-%s+України", replacement)
-    new_text = new_text:gsub("військової%s+частини%s+А0536", replacement)
+    -- 1. Проводимо базові заміни за всіма шаблонами з конфіга
+    for _, pattern in ipairs(patterns) do
+        new_text = new_text:gsub(pattern, replacement)
+    end
 
-    -- 2. Видаляємо цифри перед назвою бригади
-    new_text = new_text:gsub("^(.-)(53%s+окремої.*)$", function(before, brigade)
-        before = before:gsub("%d+", "")
-        before = before:gsub("%s+", " ")
-        return before .. brigade
+    -- 2. Видаляємо цифри перед назвою бригади (динамічно за номером з config.unit_number)
+    local brigade_pattern = "^(.-)(" .. unit_num .. "%s+окремої.*)$"
+    new_text = new_text:gsub(brigade_pattern, function(prefix, brigade)
+        prefix = prefix:gsub("%d+", "")
+        prefix = prefix:gsub("%s+", " ")
+        return prefix .. brigade
     end)
 
     return new_text
@@ -65,16 +71,9 @@ function M.sort_officers_first()
         utils.warn("Список записів порожній") 
         return 
     end 
-
-    -- Ключові слова та скорочення
-    local officer_keywords = { 
-        "лейтенант", 
-        "капітан", 
-        "майор",
-        "підполков",
-        "полковник", 
-        "генерал" 
-    } 
+     
+    -- Берём список ключей офицеров из конфигурации
+    local officer_keywords = config.options.officer_keywords or {}
 
     -- Перевірка звання ВИКЛЮЧНО в полі "2" (або [2])
     local function is_officer(rec)
@@ -90,7 +89,7 @@ function M.sort_officers_first()
         end
         
         text = text:lower()
-        for _, kw in ipairs(officer_keywords) do 
+for _, kw in ipairs(officer_keywords) do 
             if text:find(kw, 1, true) then 
                 return true 
             end 

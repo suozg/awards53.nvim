@@ -244,36 +244,10 @@ return {
             desc = "Показати клавіші orgmode",
           })
 
-          -- Переопределяем 'r' с небольшой задержкой для асинхронного обновления orgmode
-          vim.keymap.set("n", "r", function()
-            vim.cmd("normal! r")
-            -- Ждем 100 мс, пока orgmode завершит перерисовку аженды, затем смещаем курсор
-            vim.defer_fn(function()
-              orgagenda_activate_item(bufnr)
-            end, 100)
-          end, {
-            buffer = bufnr,
-            silent = true,
-            noremap = true,
-            desc = "Оновити agenda",
-          })
-
           vim.defer_fn(function()
             update_orgagenda_winbar(bufnr)
             orgagenda_activate_item(bufnr)
           end, 150)
-        end,
-      })
-
-      -- Автоматический сдвиг курсора при изменении содержимого буфера (на случай любых обновлений)
-      vim.api.nvim_create_autocmd({ "BufReadPost", "TextChanged" }, {
-        pattern = "*",
-        callback = function(event)
-          if vim.bo[event.buf].filetype == "orgagenda" then
-            vim.defer_fn(function()
-              orgagenda_activate_item(event.buf)
-            end, 50)
-          end
         end,
       })
 

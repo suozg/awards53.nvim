@@ -6,7 +6,7 @@ function M.create_document(tpl)
         return nil
     end
 
-    local cfg = require("awards53").config or {}
+    local cfg = require("awards53.config").options
     local cwd = vim.fn.getcwd()
 
     -- 1. Если в конфиге явно задан output_dir — используем его

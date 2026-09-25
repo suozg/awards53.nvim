@@ -47,7 +47,8 @@ function M.open()
             -- Генерація окремого Нагородного листа для КОЖНОЇ картки (для "orden")
             local created_award_sheets = {}
             if tpl.id == "orden" then
-                local sheet_tpl_path = vim.fn.stdpath("config") .. "/templates/templates53/awards/orden/orden_sheet.odt"
+                local doc_cfg = require("awards53.config").options.documents
+                local sheet_tpl_path = doc_cfg.template_dir .. "/awards/orden/orden_sheet.odt"
                 
                 if vim.fn.filereadable(sheet_tpl_path) == 1 then
                     created_award_sheets = require("awards53.documents.converter").generate_award_sheets({

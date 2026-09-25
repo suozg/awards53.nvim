@@ -1,6 +1,6 @@
 local M = {}
 
-local config = require("awards53.documents.config")
+local config = require("awards53.config").options.documents
 
 function M.pick(mode, callback)
     local width = math.floor(vim.o.columns * 0.6)
