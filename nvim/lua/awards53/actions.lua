@@ -2,27 +2,27 @@
 
 local M = {}
 
-local state = require("awards53.state") 
-local utils = require("awards53.utils") 
-local config = require("awards53.config") 
+local state = require("awards53.state")
+local utils = require("awards53.utils")
+local config = require("awards53.config")
+local rnokpp = require("awards53.rnokpp")
 
 -- ====================================================================
 -- Спільне ядро для форматування тексту однієї картки (публічне)
 -- ====================================================================
 function M.format_text_core(text)
-    local rnokpp_start, rnokpp_end = text:find("(%d%d%d%d%d%d%d%d%d%d)")
-    if not rnokpp_start then return nil end
+    local code, start_idx, end_idx = rnokpp.find_in_text(text)
+    if not code then return nil end
 
     local replacement = config.options.replacement or ""
     local patterns = config.options.replacement_patterns or {}
     local unit_num = config.options.unit_number or "53"
 
-    local rnokpp = text:sub(rnokpp_start, rnokpp_end)
-    local before = text:sub(1, rnokpp_start - 1)
-    local after  = text:sub(rnokpp_end + 1)
+    local before = text:sub(1, start_idx - 1)
+    local after  = text:sub(end_idx + 1)
 
     before = before:gsub("[%s%,%.%;%-]+$", "")
-    local new_text = before .. "\n" .. rnokpp .. after
+    local new_text = before .. "\n" .. code .. after
 
     -- 1. Проводимо базові заміни за всіма шаблонами з конфіга
     for _, pattern in ipairs(patterns) do
@@ -65,19 +65,16 @@ end
 -- 1. Перемістити офіцерів на початок списку
 -- ====================================================================
 function M.sort_officers_first()
-    local cfg = require("awards53") 
-    
     if not state.records or #state.records == 0 then 
         utils.warn("Список записів порожній") 
         return 
     end 
-     
-    -- Берём список ключей офицеров из конфигурации
+      
+    -- Беремо список ключових слів для офіцерів з конфігурації
     local officer_keywords = config.options.officer_keywords or {}
 
     -- Перевірка звання ВИКЛЮЧНО в полі "2" (або [2])
     local function is_officer(rec)
-        -- Перевіряємо за ключем "2" або числовому індексу 2
         local val = rec["2"] or rec[2]
         if not val then return false end 
 
@@ -89,7 +86,7 @@ function M.sort_officers_first()
         end
         
         text = text:lower()
-for _, kw in ipairs(officer_keywords) do 
+        for _, kw in ipairs(officer_keywords) do 
             if text:find(kw, 1, true) then 
                 return true 
             end 
@@ -114,7 +111,7 @@ for _, kw in ipairs(officer_keywords) do
     -- Якщо офіцерів у 2 полі не знайдено
     if officer_count == 0 then
         utils.warn("У 2-му полі офіцерських звань не знайдено!")
-        for idx, rec in ipairs(state.records) do rec.__original_index = nil end
+        for _, rec in ipairs(state.records) do rec.__original_index = nil end
         return
     end
 
@@ -150,7 +147,7 @@ for _, kw in ipairs(officer_keywords) do
     if type(state.save_bookmarks) == "function" then state.save_bookmarks() end
     if type(state.sync_to_disk) == "function" then state.sync_to_disk() end
 
-    -- 5. Примусове перемалювання
+    -- 5. Примусове перемалювання UI
     local ui = package.loaded["awards53.ui"] or package.loaded["ui"]
     if ui and type(ui.render) == "function" then
         ui.render()

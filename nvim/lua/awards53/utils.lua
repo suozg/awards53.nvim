@@ -3,10 +3,10 @@
 --│                    очищення тексту від невидимих символів та виправлення неправильної 
 --│                    розкладки клавіатури при введенні команд.
 
-
 local M = {}
 
 local cfg = require("awards53")
+local rnokpp = require("awards53.rnokpp")
 
 local ua_map = { 
     h = "р", j = "о", k = "л", l = "д", i = "ш", a = "ф", s = "і", d = "в", f = "а", g = "п", y = "н", u = "г", n = "т", p = "з", 
@@ -39,28 +39,6 @@ function M.clean_invisible_chars(text)
     return text
 end
 
-
-local function rnokpp_birth_date(rnokpp)
-    if not rnokpp or #rnokpp ~= 10 then
-        return nil
-    end
-
-    local days = tonumber(rnokpp:sub(1, 5))
-    if not days then
-        return nil
-    end
-
-    local base_time = os.time({ year = 1899, month = 12, day = 31, hour = 12 })
-    local birth_time = base_time + (days * 86400)
-    local t = os.date("*t", birth_time)
-
-    if not t or not t.year or not t.month or not t.day then
-        return nil
-    end
-
-    return string.format("%02d.%02d.%04d", t.day, t.month, t.year)
-end
-
 function M.highlight_rnokpp_in_buf(buf)
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
         return
@@ -70,7 +48,6 @@ function M.highlight_rnokpp_in_buf(buf)
     vim.api.nvim_buf_clear_namespace(buf, ns_id, 0, -1)
 
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local weights = { -1, 5, 7, 9, 4, 6, 10, 5, 7 }
 
     for line_idx, line in ipairs(lines) do
         local start_pos = 1
@@ -88,58 +65,29 @@ function M.highlight_rnokpp_in_buf(buf)
                 local match = line:sub(init_match, end_match)
                 local match_len = #match
 
+                -- Помилка довжини (від 6 до 9 цифр підряд)
                 if match_len >= 6 and match_len < 10 then
                     vim.api.nvim_buf_add_highlight(
-                        buf,
-                        ns_id,
-                        "Awards53RnokppError",
-                        line_idx - 1,
-                        init_match - 1,
-                        end_match
+                        buf, ns_id, "Awards53RnokppError",
+                        line_idx - 1, init_match - 1, end_match
                     )
-
                 elseif match_len == 10 then
-                    local digits = {}
-                    for i = 1, 10 do
-                        digits[i] = tonumber(match:sub(i, i))
-                    end
-
-                    local k1 = 0
-                    for i = 1, 9 do
-                        k1 = k1 + (digits[i] * weights[i])
-                    end
-
-                    local checksum = k1 % 11
-                    if checksum == 10 then
-                        checksum = 0
-                    end
-
-                    if checksum ~= digits[10] then
+                    -- Перевірка валідності через новий модуль
+                    if not rnokpp.is_valid(match) then
                         vim.api.nvim_buf_add_highlight(
-                            buf,
-                            ns_id,
-                            "Awards53RnokppError",
-                            line_idx - 1,
-                            init_match - 1,
-                            end_match
+                            buf, ns_id, "Awards53RnokppError",
+                            line_idx - 1, init_match - 1, end_match
                         )
                     else
                         vim.api.nvim_buf_add_highlight(
-                            buf,
-                            ns_id,
-                            "Awards53Rnokpp",
-                            line_idx - 1,
-                            init_match - 1,
-                            end_match
+                            buf, ns_id, "Awards53Rnokpp",
+                            line_idx - 1, init_match - 1, end_match
                         )
 
-                        local birth_date = rnokpp_birth_date(match)
+                        local birth_date = rnokpp.get_birth_date(match)
                         if birth_date then
                             vim.api.nvim_buf_set_extmark(
-                                buf,
-                                ns_id,
-                                line_idx - 1,
-                                end_match,
+                                buf, ns_id, line_idx - 1, end_match,
                                 {
                                     virt_text = { { " 󰃭 " .. birth_date, "Comment" } },
                                     virt_text_pos = "inline",
@@ -158,7 +106,6 @@ function M.highlight_rnokpp_in_buf(buf)
         end
     end
 end
-
 
 function M.is_section(line)
     local section = vim.pesc(cfg.config.section)

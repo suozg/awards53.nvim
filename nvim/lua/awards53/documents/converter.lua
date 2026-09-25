@@ -1,5 +1,6 @@
 local M = {}
 local context = require("awards53.documents.context")
+local rnokpp_util = require("awards53.rnokpp")
 
 -- Функція для парсингу метаданих та багаторядкових полів з .org файлу
 local function read_org_metadata(filepath)
@@ -364,25 +365,6 @@ function M.convert_current()
     )
 end
 
-local MONTHS_UA = {
-    "січня", "лютого", "березня", "квітня", "травня", "червня",
-    "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"
-}
-
-local function parse_rnokpp(rnokpp_str)
-    if not rnokpp_str or #rnokpp_str ~= 10 then return nil end
-    local days = tonumber(rnokpp_str:sub(1, 5))
-    if not days then return nil end
-
-    local base_time = os.time({year = 1899, month = 12, day = 31, hour = 12})
-    local birth_time = base_time + (days * 86400)
-    local t = os.date("*t", birth_time)
-
-    if not t or not t.year or not t.month or not t.day then return nil end
-
-    return string.format("%d %s %d року", t.day, MONTHS_UA[t.month] or "", t.year)
-end
-
 local function parse_posada_field(posada_text)
     if not posada_text or posada_text == "" then
         return nil, nil
@@ -393,7 +375,14 @@ local function parse_posada_field(posada_text)
         return nil, nil
     end
 
-    local birth_date = parse_rnokpp(rnokpp)
+    -- Додатково можна додати перевірку валідності перед парсингом:
+    if not rnokpp_util.is_valid(rnokpp) then
+        return nil, nil
+    end
+
+    -- Отримуємо дату народження з зовнішнього модуля
+    local birth_date = rnokpp_util.get_birth_date_formatted(rnokpp)
+    
     local raw_rank = posada_text:match("України%s*,?%s*(.-)%s*" .. rnokpp)
 
     local rank = nil
