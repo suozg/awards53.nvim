@@ -1,3 +1,5 @@
+-- searchtxt.lua
+--
 local M = {}
 local utils = require("awards53.utils")
 local uv = vim.uv or vim.loop

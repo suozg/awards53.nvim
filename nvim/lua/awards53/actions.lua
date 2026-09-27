@@ -8,6 +8,153 @@ local config = require("awards53.config")
 local rnokpp = require("awards53.rnokpp")
 
 -- ====================================================================
+-- Допоміжні функції внутрішньої синхронізації
+-- ====================================================================
+
+-- Фіксує та зберігає незавершені редагування (якщо відкритий editor або inline)
+local function sync_active_editors()
+    -- 1. Якщо відкритий окремий буфер редактора (editor.lua)
+    local ok_ed, editor = pcall(require, "awards53.editor")
+    if ok_ed and editor.buf and vim.api.nvim_buf_is_valid(editor.buf) then
+        editor.save_core(editor.buf)
+    end
+
+    -- 2. Якщо активний режим inline-редагування (ui/inline.lua)
+    local ok_inl, inline = pcall(require, "awards53.ui.inline")
+    if ok_inl and inline.edit_state and inline.edit_state.active then
+        local ui = require("awards53.ui")
+        inline.commit(ui.state, nil)
+    end
+end
+
+-- Перемальовує UI або активні буфери після внесення змін
+local function refresh_all()
+    local ok_ed, editor = pcall(require, "awards53.editor")
+    if ok_ed and editor.buf and vim.api.nvim_buf_is_valid(editor.buf) then
+        editor.refresh_editor_buffer(editor.buf)
+    end
+
+    local ok_ui, ui = pcall(require, "awards53.ui")
+    if ok_ui then
+        ui.redraw()
+    end
+end
+
+-- Допоміжна функція отримання активного поля з перевіркою
+local function get_active_field()
+    local field_id = state.field_name()
+    if not field_id then
+        utils.warn("Не вдалося визначити поточне поле")
+    end
+    return field_id
+end
+
+-- Допоміжна функція витягування назви нагороди з тексту картки
+local function extract_award_name(rec)
+    if type(rec) ~= "table" then
+        return nil
+    end
+
+    -- Собираем ВСЮ карточку, а не только активное поле.
+    local parts = {}
+
+    for k, v in pairs(rec) do
+        -- Игнорируем служебные поля
+        if type(k) ~= "string"
+            or (not k:match("^__") and not k:match("^_")) then
+
+            if type(v) == "table" then
+                for _, line in ipairs(v) do
+                    if type(line) == "string" and line ~= "" then
+                        table.insert(parts, line)
+                    end
+                end
+
+            elseif type(v) == "string" and v ~= "" then
+                table.insert(parts, v)
+
+            elseif type(v) == "number" then
+                table.insert(parts, tostring(v))
+            end
+        end
+    end
+
+    local text = table.concat(parts, " ")
+    text = text:gsub("%s+", " ")
+    text = text:gsub("^%s+", "")
+    text = text:gsub("%s+$", "")
+
+    if text == "" then
+        return nil
+    end
+
+    -- ---------------------------------------------------------------
+    -- 1. Назва в лапках.
+    -- Наприклад:
+    -- нагороджено відзнакою "Золотий хрест"
+    -- нагороджено "За мужність"
+    -- ---------------------------------------------------------------
+
+    local award =
+        text:match('["«“]([^"»”]+)["»”]%s*%.?%s*$')
+
+    if award and award ~= "" then
+        return award
+    end
+
+    -- ---------------------------------------------------------------
+    -- 2. Назва після "знаком", "відзнакою", "медаллю", "орденом"
+    -- ---------------------------------------------------------------
+
+    award =
+        text:match('знаком%s*[%-%—%–]?%s*["«“]([^"»”]+)["»”]')
+        or text:match('відзнакою%s*[%-%—%–]?%s*["«“]([^"»”]+)["»”]')
+        or text:match('медаллю%s*[%-%—%–]?%s*["«“]([^"»”]+)["»”]')
+        or text:match('орденом%s*[%-%—%–]?%s*["«“]([^"»”]+)["»”]')
+
+    if award and award ~= "" then
+        return award
+    end
+
+    -- ---------------------------------------------------------------
+    -- 3. "почесним нагрудним знаком ..."
+    -- ---------------------------------------------------------------
+
+    award = text:match(
+        "почесним%s+нагрудним%s+знаком%s+([^%.]+)"
+    )
+
+    if award and award ~= "" then
+        return award:gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    -- ---------------------------------------------------------------
+    -- 4. "знаком ГК ЗСУ — ..."
+    -- ---------------------------------------------------------------
+
+    award = text:match(
+        "знаком%s+ГК%s+ЗСУ%s*[%-%—%–]%s*([^%.]+)"
+    )
+
+    if award and award ~= "" then
+        return award:gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    -- ---------------------------------------------------------------
+    -- 5. "відзнакою — ..."
+    -- ---------------------------------------------------------------
+
+    award = text:match(
+        "відзнакою%s*[%-%—%–]%s*([^%.]+)"
+    )
+
+    if award and award ~= "" then
+        return award:gsub("^%s+", ""):gsub("%s+$", "")
+    end
+
+    return nil
+end
+-- ====================================================================
 -- Спільне ядро для форматування тексту однієї картки (публічне)
 -- ====================================================================
 function M.format_text_core(text)
@@ -52,15 +199,6 @@ local function process_field(record, field_id)
     return vim.split(formatted, "\n", { trimempty = false })
 end
 
--- Допоміжна функція отримання активного поля з перевіркою
-local function get_active_field()
-    local field_id = state.field_name()
-    if not field_id then
-        utils.warn("Не вдалося визначити поточне поле")
-    end
-    return field_id
-end
-
 -- ====================================================================
 -- 1. Перемістити офіцерів на початок списку
 -- ====================================================================
@@ -70,10 +208,8 @@ function M.sort_officers_first()
         return 
     end 
       
-    -- Беремо список ключових слів для офіцерів з конфігурації
     local officer_keywords = config.options.officer_keywords or {}
 
-    -- Перевірка звання ВИКЛЮЧНО в полі "2" (або [2])
     local function is_officer(rec)
         local val = rec["2"] or rec[2]
         if not val then return false end 
@@ -94,7 +230,6 @@ function M.sort_officers_first()
         return false 
     end 
 
-    -- 1. Фіксуємо активну картку та збираємо кількість офіцерів у 2 полі
     local current_rec = state.records[state.current]
     local officer_count = 0
 
@@ -108,14 +243,12 @@ function M.sort_officers_first()
         end
     end 
 
-    -- Якщо офіцерів у 2 полі не знайдено
     if officer_count == 0 then
         utils.warn("У 2-му полі офіцерських звань не знайдено!")
         for _, rec in ipairs(state.records) do rec.__original_index = nil end
         return
     end
 
-    -- 2. Сортуємо (офіцери з 2 поля — на початок)
     table.sort(state.records, function(a, b) 
         local a_off = is_officer(a) 
         local b_off = is_officer(b) 
@@ -124,7 +257,6 @@ function M.sort_officers_first()
         return a.__original_index < b.__original_index 
     end) 
 
-    -- 3. Відновлюємо індекси закладок та активну картку
     state.bookmarks = {}
     local new_current = 1
 
@@ -139,7 +271,6 @@ function M.sort_officers_first()
         rec.__original_index = nil 
     end 
 
-    -- 4. Оновлюємо стан та синхронізуємо
     state.current = new_current
     state.is_changed = true
 
@@ -147,43 +278,176 @@ function M.sort_officers_first()
     if type(state.save_bookmarks) == "function" then state.save_bookmarks() end
     if type(state.sync_to_disk) == "function" then state.sync_to_disk() end
 
-    -- 5. Примусове перемалювання UI
-    local ui = package.loaded["awards53.ui"] or package.loaded["ui"]
-    if ui and type(ui.render) == "function" then
-        ui.render()
-    elseif type(state.render) == "function" then
-        state.render()
-    end
-
+    refresh_all()
     utils.info(string.format("Переміщено офіцерів: %d", officer_count)) 
 end
 
 -- ====================================================================
--- 2. Форматування вибраного поля ДЛЯ ПОТОЧНОЇ КАРТКИ
+-- 2. Сортування карток за назвою нагороди
 -- ====================================================================
-function M.format_rnokpp_in_current_card()
+function M.sort_by_award()
+    sync_active_editors()
+
+    if type(state.records) ~= "table" or #state.records == 0 then
+        utils.warn("Список записів порожній")
+        return
+    end
+
+    state.snapshot()
+
+    local current_rec = state.records[state.current]
+    local found_count = 0
+
+    -- ================================================================
+    -- Підготовка
+    -- ================================================================
+
+    for idx, rec in ipairs(state.records) do
+        if type(rec) == "table" then
+
+            rec.__original_index = idx
+
+            local award = extract_award_name(rec)
+
+            if award then
+                award = award:gsub("^%s+", "")
+                award = award:gsub("%s+$", "")
+                award = award:gsub("%s+", " ")
+
+                rec.__award_name = award:lower()
+
+                found_count = found_count + 1
+            else
+                -- Без нагороди — після всіх знайдених.
+                rec.__award_name = "\255\255\255"
+            end
+
+            if state.bookmarks then
+                rec._is_bookmarked =
+                    state.bookmarks[idx] == true
+            end
+        end
+    end
+
+    -- ================================================================
+    -- Перевірка
+    -- ================================================================
+
+    if found_count == 0 then
+
+        for _, rec in ipairs(state.records) do
+            rec.__original_index = nil
+            rec.__award_name = nil
+            rec._is_bookmarked = nil
+        end
+
+        utils.warn(
+            "Не вдалося знайти назви нагород у картках"
+        )
+
+        return
+    end
+
+    -- ================================================================
+    -- СОРТУВАННЯ
+    -- ================================================================
+
+    table.sort(state.records, function(a, b)
+
+        if a.__award_name ~= b.__award_name then
+            return a.__award_name < b.__award_name
+        end
+
+        -- Однакові нагороди залишаються
+        -- у тому самому порядку.
+        return a.__original_index < b.__original_index
+    end)
+
+    -- ================================================================
+    -- Відновлення закладок і поточної картки
+    -- ================================================================
+
+    state.bookmarks = {}
+
+    local new_current = 1
+
+    for idx, rec in ipairs(state.records) do
+
+        if rec._is_bookmarked then
+            state.bookmarks[idx] = true
+        end
+
+        if current_rec and rec == current_rec then
+            new_current = idx
+        end
+
+        rec._is_bookmarked = nil
+        rec.__original_index = nil
+        rec.__award_name = nil
+    end
+
+    state.current = new_current
+    state.is_changed = true
+
+    -- ================================================================
+    -- Збереження
+    -- ================================================================
+
+    if type(state.renumber) == "function" then
+        state.renumber()
+    end
+
+    if type(state.save_bookmarks) == "function" then
+        state.save_bookmarks()
+    end
+
+    if type(state.sync_to_disk) == "function" then
+        state.sync_to_disk()
+    end
+
+    refresh_all()
+
+    utils.info(
+        string.format(
+            "Відсортовано за нагородою: %d з %d",
+            found_count,
+            #state.records
+        )
+    )
+end
+
+-- ====================================================================
+-- 3. Вхідні точки для гарячих клавіш R, X, T, C
+-- ====================================================================
+
+--- ДІЯ R: Форматування РНОКПП для ПОТОЧНОЇ картки
+function M.action_R()
+    sync_active_editors()
+
     local record = state.current_record() 
     if not record then return end 
- 
+
     local field_id = get_active_field()
     if not field_id then return end
 
     local formatted_lines = process_field(record, field_id)
     if not formatted_lines then
-        utils.warn("РНОКПП (10 цифр підряд) у Полі [" .. field_id .. "] не знайдено") 
+        utils.warn("РНОКПП (10 цифр) у Полі [" .. field_id .. "] не знайдено") 
         return
     end
- 
+
     state.snapshot() 
     record[field_id] = formatted_lines
     state.is_changed = true 
+    
+    refresh_all()
     utils.info("Поле [" .. field_id .. "] відформатоване") 
 end
 
--- ====================================================================
--- 3. Форматування вибраного поля ДЛЯ ВСІХ КАРТОК ОДНОЧАСНО
--- ====================================================================
-function M.format_rnokpp_in_all_cards()
+--- ДІЯ X: Форматування РНОКПП для ВСІХ карток
+function M.action_X()
+    sync_active_editors()
+
     if not state.records or #state.records == 0 then  
         utils.warn("Список записів порожній") 
         return  
@@ -197,7 +461,7 @@ function M.format_rnokpp_in_all_cards()
     local result = {}
     for i, record in ipairs(state.records) do
         local formatted_lines = process_field(record, field_id)
-        if (record[field_id] or {} )[1] and not formatted_lines then
+        if (record[field_id] or {})[1] and not formatted_lines then
             utils.warn("РНОКПП (10 цифр) не знайдено у картці №" .. i)
             return
         end
@@ -211,7 +475,62 @@ function M.format_rnokpp_in_all_cards()
     end
 
     state.is_changed = true
-    utils.info("Автозаміну Поля [" .. field_id .. "] успішно застосовано до " .. tostring(#result) .. " карток!")
+    
+    refresh_all()
+    utils.info("Автозаміну Поля [" .. field_id .. "] застосовано до " .. tostring(#result) .. " карток!")
 end
+
+--- ДІЯ T: Сплющування тексту для ПОТОЧНОГО поля
+function M.action_S()
+    sync_active_editors()
+
+    local field_id = get_active_field()
+    if not field_id then return end
+
+    if type(state.flatten_current_field) == "function" then
+        state.flatten_current_field()
+    else
+        local rec = state.current_record()
+        if rec and rec[field_id] then
+            state.snapshot()
+            local flat_str = table.concat(rec[field_id], " "):gsub("%s+", " "):gsub("^%s*", ""):gsub("%s*$", "")
+            rec[field_id] = { flat_str }
+            state.is_changed = true
+        end
+    end
+
+    refresh_all()
+    utils.info("Поле [" .. field_id .. "] сплющено в один рядок")
+end
+
+--- ДІЯ C: Сплющування тексту для ПОЛЯ У ВСІХ КАРТКАХ
+function M.action_E()
+    sync_active_editors()
+
+    local field_id = get_active_field()
+    if not field_id then return end
+
+    if type(state.flatten_field_globally) == "function" then
+        state.flatten_field_globally()
+    else
+        if state.records then
+            state.snapshot()
+            for _, rec in ipairs(state.records) do
+                if rec[field_id] then
+                    local flat_str = table.concat(rec[field_id], " "):gsub("%s+", " "):gsub("^%s*", ""):gsub("%s*$", "")
+                    rec[field_id] = { flat_str }
+                end
+            end
+            state.is_changed = true
+        end
+    end
+
+    refresh_all()
+    utils.info("Поле [" .. field_id .. "] сплющено у всіх картках")
+end
+
+-- Аліаси для зворотної сумісності
+M.format_rnokpp_in_current_card = M.action_R
+M.format_rnokpp_in_all_cards = M.action_X
 
 return M

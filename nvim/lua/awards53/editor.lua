@@ -14,7 +14,7 @@ local actions = require("awards53.actions")
 local search_module = require("awards53.searchtxt")
 
 local help_lines = {
-    " Поле: R/X - Автоформат [тут/всюди], S/Е - Сплющити текст [тут/всюди] || Дані: f/a - Шукати [файл/sql*], c - Скинути пароль",
+    " Поле: R/X - Автоформат [тут/всюди], T/C - Сплющити текст [тут/всюди] || Дані: f/a - Шукати [файл/sql*], E - Скинути пароль",
 }
 
 -- -----------------------------------------------------------------------------
@@ -313,17 +313,23 @@ function M.open()
     vim.cmd("cnoreabbrev <buffer> ц W")
     vim.cmd("cnoreabbrev <buffer> ц! W!")   
 
+    local function save_and_close()
+        M.save_core(buf)
+        vim.cmd("Q") 
+    end
+
     local editor_keymaps = {
-        ["R"] = { function() M.save_core(buf) actions.format_rnokpp_in_current_card() M.refresh_editor_buffer(buf) end, nil },
-        ["X"] = { function() M.save_core(buf) actions.format_rnokpp_in_all_cards() M.refresh_editor_buffer(buf) end, nil },
+        ["<Esc>"] = { save_and_close, "Збережено" }, 
         ["zs"] = { function() require("awards53.abbreviations").select_and_insert() end, nil },
         ["zm"] = { function() require("awards53.abbreviations").manage_abbreviations() end, nil }, 
-        ["S"] = { function() M.save_core(buf) state.flatten_current_field() M.refresh_editor_buffer(buf) end, nil },
-        ["E"] = { function() M.save_core(buf) state.flatten_field_globally() M.refresh_editor_buffer(buf) end, nil },
         ["f"] = { function() search_module.process_all_rnokpp() end, "Пошук в ~/STATISTIKA/shtat" }, 
-        ["c"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 
+        ["E"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 
         ["a"] = { function() search_module.run_sql_search() end, "Пошук по базі нагород" },
         ["?"] = { function() require("awards53.help").open() end, false }, 
+        ["R"]  = { actions.action_R, "Автоформат [тут]" },
+        ["X"]  = { actions.action_X, "Автоформат [всюди]" },
+        ["T"]  = { actions.action_S, "Сплющити текст [тут]" },
+        ["C"]  = { actions.action_E, "Сплющити текст [всюди]" }, 
     }
 
     local key_opts = { buffer = buf, silent = true, noremap = true }
@@ -470,7 +476,7 @@ function M.render_status()
     if prev_hint ~= "" then prev_hint = " │" .. prev_hint end
 
     return string.format(
-        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s%s%s │ :w - зберегти │ :q - зберегти та вийти, :q! - вийти",
+        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s%s%s │ :w - зберегти, :q або Esc - зберегти та вийти, :q! - вийти",
         card_idx, state.count(), field, modified, prev_hint
     )
 end
