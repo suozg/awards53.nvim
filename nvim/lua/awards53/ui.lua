@@ -11,6 +11,7 @@ local actions = require("awards53.actions")
 local move_karta = require("awards53.move_karta")
 local mappings = require("awards53.mappings")
 local inline = require("awards53.inline")
+local search_module = require("awards53.searchtxt")
 
 M.body_buf = nil
 M.body_win = nil
@@ -494,7 +495,7 @@ local function bind_keys()
         ["]]"]  = { function() state.last() end, true },
         ["<H>"] = { function() state.jump(5) end, true },
         ["<L>"] = { function() state.jump(-5) end, true },
-
+        -- переход до картки
         ["g"]   = { function()
             local total_records = state.count()
             if total_records == 0 then return end
@@ -513,11 +514,8 @@ local function bind_keys()
                 end)
             end
         end, false },
-
-        ["j"]   = { function() return state.next_field() end, true },
-        ["k"]   = { function() return state.prev_field() end, true },
-
-        ["f"]   = { function()
+        -- Перехід до поля за номером 
+        ["gf"]   = { function()
             local total = #state.headers_list()
             if total == 0 then return end
 
@@ -537,21 +535,31 @@ local function bind_keys()
                 end)
             end
         end, false },
-
+        -- перехід по полям вверх-вниз
+        ["j"]   = { function() return state.next_field() end, true },
+        ["k"]   = { function() return state.prev_field() end, true },
+        -- Пошук у ~/STATISTIKA/shtat (по файлах / РНОКПП)
+        ["f"]   = { function() 
+            search_module.process_all_rnokpp() 
+        end, false },
+        -- Пошук по базі нагород (SQL)
+        ["a"]   = { function() 
+            search_module.run_sql_search() 
+        end, false },
+        -- переміщення полей вверх/вниз 
         ["J"]   = { function() return state.move_field_content_down() end, true },
         ["K"]   = { function() return state.move_field_content_up() end, true },
-
+        -- закладки
         ["m"]   = { function() state.toggle_bookmark() end, true },
         ["]m"]  = { function() return state.next_bookmark() end, true },
         ["[m"]  = { function() return state.prev_bookmark() end, true },
-
+        -- редагування вкл/викл
         ["i"] = {
             function()
                 inline.start(M, M.redraw)
             end,
             false,
         },
-
         ["I"] = {
             function()
                 state.set_mode("INSERT")
@@ -559,11 +567,12 @@ local function bind_keys()
             end,
             false,
         },
-        
+        -- створити картку        
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false },
-
+        -- створити поле
         ["F"]   = { function() if state.new_field() then M.redraw() utils.info("Додано нове поле №" .. state.field_name()) end end, false },
         ["F-"]  = { function() if state.new_field("-") then M.redraw() utils.info("Додано нове поле №" .. state.field_name() .. " із '-'") end end, false },
+        -- видалити поле 
         ["B"]   = { function()
             if state.delete_field() then
                 state.sync_to_disk()
@@ -573,7 +582,7 @@ local function bind_keys()
                 utils.error("Не вдалося видалити поле")
             end
         end, false },
-
+        -- видалити картку
         ["dd"]  = { function()
             state.copy_current()
             if state.delete_current() then
@@ -582,25 +591,27 @@ local function bind_keys()
                 utils.error("Не можна видалити останню картку")
             end
         end, true },
-
+        -- скопіювати картку
         ["yy"]  = { function() state.copy_current() utils.info("Картку скопійовано") end, false },
+        -- вставити карту
         ["p"]   = { function() return state.paste_after() end, true },
-
+        -- undo
         ["u"]   = { function()
             if state.undo_last() then
                 M.redraw()
             end
         end, false },
-
+        -- redo
         ["<C-r>"] = { function()
             if state.redo_last() then
                 M.redraw()
             end
         end, false },
-
+        -- undo menu
         ["U"]   = { function() M.open_undotree_window() end, false },
+        -- fork 
         ["dp"]  = { function() move_karta.move_to_fork() end, true },
-
+        -- search
         ["/"]   = { function()
             vim.ui.input({ prompt = "Пошук " .. cfg.config.default_sort .. ": " }, function(t)
                 if t and t ~= "" then
@@ -609,7 +620,7 @@ local function bind_keys()
                 end
             end)
         end, false },
-
+        --пошук в полі
         ["g/"]  = { function()
             vim.ui.select(state.headers_list(), { prompt = "🔍 Шукати в полі:" }, function(f)
                 if f then
