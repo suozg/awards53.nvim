@@ -633,19 +633,33 @@ function M.open()
 
         bind_keys()
 
+
         local function save_card_action()
             local src_buf = state.get_source_buffer()
 
-            if src_buf and vim.api.nvim_buf_is_valid(src_buf) and vim.bo[src_buf].modified then
-                utils.error("Помилка: Вихідний org-буфер має незбережені зміни! Спочатку збережіть (:w) org-файл.")
-                return
+            -- Якщо org-буфер змінено ВРУЧНУ (коли плагін ще не мав незбережених власних змін у state),
+            -- то показуємо помилку. Якщо ж is_changed == true, це означає, що зміни внесені плагіном.
+            if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
+                if vim.bo[src_buf].modified and not state.is_changed then
+                    utils.error("Помилка: Вихідний org-буфер має незбережені ручні зміни! Спочатку збережіть (:w) org-файл.")
+                    return
+                end
             end
 
             local commands = require("awards53.commands")
             commands.save_cards()
+
+            -- Зберігаємо сам org-буфер на диск та знімаємо з нього прапорець modified
+            if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
+                vim.api.nvim_buf_call(src_buf, function()
+                    vim.cmd("silent! noautocmd write")
+                end)
+            end
+
             M.redraw()
         end
 
+        
         vim.api.nvim_create_autocmd("BufWriteCmd", {
             buffer = M.body_buf,
             callback = save_card_action,
