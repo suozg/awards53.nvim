@@ -4,61 +4,35 @@ local M = {}
 local uv = vim.uv or vim.loop
 M.config = config.options
 
-local defaults = {
-    separator = "::",
-    section = "AWARDS53",
-    default_sort = "1",
-    record_separator = "===",
-}
-
-M.config = {}
-
--- Перевірка, чи живий процес за його PID
 local function is_process_running(pid)
-    if not pid or pid <= 0 then return false end
-    -- uv.kill(pid, 0) повертає 0 (або true), якщо процес існує та належить користувачу
-    local code = uv.kill(pid, 0)
-    return code == 0
+    return pid and pid > 0 and uv.kill(pid, 0) == 0
 end
 
--- Атомарне створення lock-файлу
 local function acquire_lock(file_path)
     if not file_path or file_path == "" then return true end
     local lock_path = file_path .. ".awards53.lock"
     local current_pid = vim.fn.getpid()
-
-    -- Прапорці: O_CREAT (створити) + O_EXCL (впасти, якщо вже існує) + O_WRONLY (запис)
     local flags = bit.bor(uv.constants.O_CREAT, uv.constants.O_EXCL, uv.constants.O_WRONLY)
-    -- Права доступу: 0644 (rw-r--r--)
-    local mode = 420 
+    local mode = 420 -- 0644
 
     local fd = uv.fs_open(lock_path, flags, mode)
-
     if fd then
-        -- Файл успішно створено атомарно! Записуємо PID
         uv.fs_write(fd, tostring(current_pid), -1)
         uv.fs_close(fd)
         return true, lock_path
     end
 
-    -- Якщо fd == nil, файл вже існує. Перевіряємо, чи живий процес-власник (Stale lock check)
     local read_fd = uv.fs_open(lock_path, "r", 438)
     if read_fd then
         local stat = uv.fs_fstat(read_fd)
-        local data = ""
-        if stat and stat.size > 0 then
-            data = uv.fs_read(read_fd, stat.size, 0) or ""
-        end
+        local data = (stat and stat.size > 0) and (uv.fs_read(read_fd, stat.size, 0) or "") or ""
         uv.fs_close(read_fd)
 
         local owner_pid = tonumber(vim.trim(data))
-
-        -- Якщо PID не зчитується або процес МЕРТВИЙ — це stale lock, видаляємо його і пробуємо знову
         if owner_pid and not is_process_running(owner_pid) then
             vim.notify("Виявлено застарілий lock-файл (процес " .. owner_pid .. " завершився). Перехоплюємо лок...", vim.log.levels.WARN)
             os.remove(lock_path)
             
-            -- Повторна спроба після очищення
             local retry_fd = uv.fs_open(lock_path, flags, mode)
             if retry_fd then
                 uv.fs_write(retry_fd, tostring(current_pid), -1)
@@ -71,11 +45,15 @@ local function acquire_lock(file_path)
     return false, lock_path
 end
 
--- Видалення lock-файлу
 function M.release_lock(file_path)
-    if not file_path or file_path == "" then return end
-    local lock_path = file_path .. ".awards53.lock"
-    os.remove(lock_path)
+    if file_path and file_path ~= "" then os.remove(file_path .. ".awards53.lock") end
+end
+
+local function register_doc_convert_cmd(buf)
+    pcall(vim.api.nvim_buf_del_user_command, buf, "Document53Convert")
+    vim.api.nvim_buf_create_user_command(buf, "Document53Convert", function()
+        require("awards53.documents.converter").convert_current()
+    end, { desc = "Конвертувати поточний документ/картку" })
 end
 
 function M.setup(opts)
@@ -86,7 +64,6 @@ function M.setup(opts)
     M.config = config.options
     local augroup = vim.api.nvim_create_augroup("Awards53", { clear = true })
 
-    -- 1. Namespace & Highlights
     M.ns_help = vim.api.nvim_create_namespace("awards53_editor_help")
     M.ns_fields = vim.api.nvim_create_namespace("awards53_fields")
     M.ns_rnokpp = vim.api.nvim_create_namespace("awards53_rnokpp")
@@ -94,54 +71,40 @@ function M.setup(opts)
     local function setup_highlights()
         local hl = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
         local bg_color = hl.bg and string.format("#%06x", hl.bg) or "NONE"
-        local light = vim.fn.filereadable(vim.fn.expand("~/.lightmode")) == 1
+        local is_light = vim.o.background == "light" or vim.fn.filereadable(vim.fn.expand("~/.lightmode")) == 1
 
-        vim.cmd("highlight default link Awards53ActiveField CursorLine")
-        vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "NONE" })
-        vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "NONE", bold = false })
-        vim.api.nvim_set_hl(0, "Awards53RnokppError", { link = "SpellBad", default = true })
-        vim.api.nvim_set_hl(0, "Awards53HiddenCursor", { blend = 100, nocombine = true })
-        vim.api.nvim_set_hl(0, "Awards53ChangedIndicator", { fg = "#b13337", bold = true })
-        vim.api.nvim_set_hl(0, "Awards53Separator", { link = "Comment", default = true })
-        vim.api.nvim_set_hl(0, "Awards53ChangedIndicatorKarta", { fg = "#b13337", bg = bg_color, bold = true })
-        
-        if light then
-            -- Світла тема: Активний стан 
-            vim.api.nvim_set_hl(0, "Awards53ActiveField", { bg = "#d5c4a1", fg = "#3c3836" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { fg = "#ffffff", bg = "#739313", bold = true })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { fg = "#739313", bg = "#d5c4a1" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { fg = "#d5c4a1", bg = "NONE" })
+        local hls = {
+            Awards53ActiveField           = { link = "CursorLine", default = true },
+            Awards53Help                  = { fg = "#897d6d", bg = "NONE" },
+            Awards53HelpText              = { fg = "#897d6d", bg = "NONE", bold = false },
+            Awards53RnokppError           = { link = "SpellBad", default = true },
+            Awards53HiddenCursor          = { blend = 100, nocombine = true },
+            Awards53ChangedIndicator      = { fg = "#b13337", bold = true },
+            Awards53Separator             = { link = "Comment", default = true },
+            Awards53ChangedIndicatorKarta = { fg = "#b13337", bg = bg_color, bold = true },
+            
+            Awards53ActiveFieldNC          = { bg = "#222810", fg = "#777777" },
+            Awards53ActiveFieldSeparatorNC = { fg = "#3f500a", bg = "#222810" },
+            Awards53ActiveFieldSuffixNC    = { fg = "#222810", bg = "NONE" },
+            
+            Awards53ActiveField           = is_light and { bg = "#d5c4a1", fg = "#3c3836" } or { bg = "#504945", fg = "#ebdbb2" },
+            Awards53ActiveFieldPrefix     = is_light and { fg = "#ffffff", bg = "#739313", bold = true } or { fg = "#ebdbb2", bg = "#3f500a" },
+            Awards53ActiveFieldSeparator  = is_light and { fg = "#739313", bg = "#d5c4a1" } or { fg = "#3f500a", bg = "#504945" },
+            Awards53ActiveFieldSuffix     = is_light and { fg = "#d5c4a1", bg = "NONE" } or { fg = "#504945", bg = "NONE" },
+            Awards53ActiveFieldPrefixNC   = is_light and { fg = "#888888", bg = "#3f500a", bold = true } or { fg = "#888888", bg = "#3f500a" },
+        }
 
-            -- Світла тема: Неактивний стан
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldNC", { bg = "#222810", fg = "#777777" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefixNC", { fg = "#888888", bg = "#3f500a", bold = true })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparatorNC", { fg = "#3f500a", bg = "#222810" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffixNC", { fg = "#222810", bg = "NONE" })
-        else
-            -- Темна тема: Активний стан
-            vim.api.nvim_set_hl(0, "Awards53ActiveField", { bg = "#504945", fg = "#ebdbb2" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { fg = "#ebdbb2", bg = "#3f500a" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { fg = "#3f500a", bg = "#504945" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { fg = "#504945", bg = "NONE" })
-
-            -- Темна тема: Неактивний стан
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldNC", { bg = "#222810", fg = "#777777" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefixNC", { fg = "#888888", bg = "#3f500a" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparatorNC", { fg = "#3f500a", bg = "#222810" })
-            vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffixNC", { fg = "#222810", bg = "NONE" })
+        for group, val in pairs(hls) do
+            vim.api.nvim_set_hl(0, group, val)
         end
     end
 
     M.setup_highlights = setup_highlights
-    setup_highlights()
-    vim.api.nvim_create_autocmd({ "ColorScheme", "FocusGained", "BufEnter" }, {
-        group = augroup,
-        callback = function()
-            setup_highlights()
-        end,
-    })
 
-    -- 2. Команди
+    -- Реєструємо тільки autocmd, без подвійного виклику під час ініціалізації
+    vim.api.nvim_create_autocmd("ColorScheme", { group = augroup, callback = setup_highlights })
+    setup_highlights()
+
     require("awards53.commands").setup()
 
     pcall(vim.api.nvim_del_user_command, "Documents53")
@@ -154,115 +117,76 @@ function M.setup(opts)
         end
     end, { desc = "Головне меню / робота з Documents53" })
 
-    -- 3. Автокоманда відкриття
     vim.api.nvim_create_autocmd("BufReadPost", {
         group = augroup,
         callback = function(args)
-            vim.schedule(function()
-                if not vim.api.nvim_buf_is_valid(args.buf) then return end
+            if not vim.api.nvim_buf_is_valid(args.buf) then return end
+            local lines = vim.api.nvim_buf_get_lines(args.buf, 0, 15, false)
+            if #lines == 0 then return end
+            local file_path = vim.api.nvim_buf_get_name(args.buf)
 
-                local lines = vim.api.nvim_buf_get_lines(args.buf, 0, 15, false)
-                if #lines == 0 then return end
+            -- Сценарій А: Заголовок AWARDS53
+            if lines[1] and utils.is_section(lines[1]) then
+                if state.is_busy() then return end
 
-                local file_path = vim.api.nvim_buf_get_name(args.buf)
-
-                -- Сценарій А: Виявлено заголовок AWARDS53
-                if lines[1] and utils.is_section(lines[1]) then
-                    
-                    -- Спочатку перевіряємо внутрішній стан плагіна
-                    if state.is_busy() then return end
-
-                    -- Тільки після цього намагаємося взяти атомарний Lock
-                    local success, lock_path = acquire_lock(file_path)
-                    if not success then
-                        vim.notify(
-                            "⛔ Файл заблоковано активним процесом Neovim!\nLock-файл: " .. lock_path,
-                            vim.log.levels.ERROR
-                        )
-                        vim.cmd("b #")
-                        return
-                    end
-
-                    -- Реєструємо гарантоване видалення локу при закритті
-                    local cleanup_grp = vim.api.nvim_create_augroup("Awards53LockCleanup_" .. args.buf, { clear = true })
-                    vim.api.nvim_create_autocmd({ "BufUnload", "BufWipeout", "BufDelete", "VimLeavePre" }, {
-                        group = cleanup_grp,
-                        buffer = args.buf,
-                        once = true,
-                        callback = function()
-                            M.release_lock(file_path)
-                        end,
-                    })
-
-                    local all_lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
-                    local count = 0
-
-                    for _, line in ipairs(all_lines) do
-                        if utils.is_section(line) then count = count + 1 end
-                    end
-
-                    if count > 1 then
-                        vim.notify("Невірна структура даних - декілька входжень AWARDS53!", vim.log.levels.ERROR)
-                        local choice = vim.fn.input("Виправити структуру даних? [1-так, 2-ні]: ")
-
-                        if choice == "1" then
-                            local found_first = false
-                            for i, line in ipairs(all_lines) do
-                                if utils.is_section(line) then
-                                    if not found_first then
-                                        found_first = true
-                                    else
-                                        all_lines[i] = "==="
-                                    end
-                                end
-                            end
-
-                            vim.api.nvim_buf_set_lines(args.buf, 0, -1, false, all_lines)
-                            vim.cmd("redraw")
-                            vim.notify("Структуру виправлено (зайві заголовки замінено на ===)", vim.log.levels.INFO)
-                        elseif choice == "2" then
-                            -- ВАЖЛИВО: Очищаємо lock при ранньому виході!
-                            M.release_lock(file_path)
-                            vim.cmd("b #")
-                            return
-                        end
-                    end
-
-                    vim.api.nvim_set_current_buf(args.buf)
-                    vim.cmd("Awards53")
-
-                    pcall(vim.api.nvim_buf_del_user_command, args.buf, "Document53Convert")
-                    vim.api.nvim_buf_create_user_command(args.buf, "Document53Convert", function()
-                        require("awards53.documents.converter").convert_current()
-                    end, { desc = "Конвертувати поточний документ/картку" })
-
-                    local headers = state.headers_list()
-                    if #headers > 0 and M.config.default_sort == "" then
-                        M.config.default_sort = headers[1]
-                    end
-
+                local success, lock_path = acquire_lock(file_path)
+                if not success then
+                    vim.notify("⛔ Файл заблоковано активним процесом Neovim!\nLock-файл: " .. lock_path, vim.log.levels.ERROR)
+                    vim.cmd("b #")
                     return
                 end
 
-                -- Сценарій Б: Документ DOC53
-                local is_doc53 = false
-                for _, line in ipairs(lines) do
-                    if line:match("^#%+ODT_STYLES_FILE:") or line:match("^#%+DOC53_REQUIRED:") then
-                        is_doc53 = true
-                        break
+                vim.api.nvim_create_autocmd({ "BufUnload", "BufWipeout", "BufDelete", "VimLeavePre" }, {
+                    group = vim.api.nvim_create_augroup("Awards53LockCleanup_" .. args.buf, { clear = true }),
+                    buffer = args.buf,
+                    once = true,
+                    callback = function() M.release_lock(file_path) end,
+                })
+
+                local all_lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
+                local count = 0
+                for _, line in ipairs(all_lines) do
+                    if utils.is_section(line) then count = count + 1 end
+                end
+
+                if count > 1 then
+                    vim.notify("Невірна структура даних - декілька входжень AWARDS53!", vim.log.levels.ERROR)
+                    if vim.fn.input("Виправити структуру даних? [1-так, 2-ні]: ") == "1" then
+                        local found_first = false
+                        for i, line in ipairs(all_lines) do
+                            if utils.is_section(line) then
+                                if found_first then all_lines[i] = "===" else found_first = true end
+                            end
+                        end
+                        vim.api.nvim_buf_set_lines(args.buf, 0, -1, false, all_lines)
+                        vim.notify("Структуру виправлено (зайві заголовки замінено на ===)", vim.log.levels.INFO)
+                    else
+                        M.release_lock(file_path)
+                        vim.cmd("b #")
+                        return
                     end
                 end
 
-                if is_doc53 then
+                vim.api.nvim_set_current_buf(args.buf)
+                vim.cmd("Awards53")
+                register_doc_convert_cmd(args.buf)
+
+                local headers = state.headers_list()
+                if #headers > 0 and M.config.default_sort == "" then
+                    M.config.default_sort = headers[1]
+                end
+                return
+            end
+
+            -- Сценарій Б: Документ DOC53
+            for _, line in ipairs(lines) do
+                if line:match("^#%+ODT_STYLES_FILE:") or line:match("^#%+DOC53_REQUIRED:") then
                     pcall(function() require("awards53.documents.editor").protect_tech_lines(args.buf) end)
                     pcall(function() require("awards53.abbreviations").register_buffer_abbreviations(args.buf) end)
-
-                    pcall(vim.api.nvim_buf_del_user_command, args.buf, "Document53Convert")
-                    vim.api.nvim_buf_create_user_command(args.buf, "Document53Convert", function()
-                        require("awards53.documents.converter").convert_current()
-                    end, { desc = "Конвертувати поточний документ/картку" })
+                    register_doc_convert_cmd(args.buf)
+                    break
                 end
-            end)
+            end
         end,
     })
 end

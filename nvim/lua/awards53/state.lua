@@ -26,46 +26,36 @@ M.last_search_field = nil
 M.opened_editors = {}
 M.bookmarks = {}
 
-
--- ==========================================
--- закладки
--- ==========================================
-
-M.bookmarks = {}
-
 local bookmarks_file = vim.fn.stdpath("state") .. "/awards53/bookmarks.json"
+
+-- Допоміжна функція нормалізації заголовків
+local function normalize_headers()
+    for i = 1, #M.headers do
+        M.headers[i] = tostring(i)
+    end
+end
+
+-- ==========================================
+-- Закладки (Робота з файлом)
+-- ==========================================
 
 local function load_bookmarks()
     M.bookmarks = {}
 
     local src = M.source_buffer
-    if not src or not vim.api.nvim_buf_is_valid(src) then
-        return
-    end
+    if not src or not vim.api.nvim_buf_is_valid(src) then return end
 
     local path = vim.api.nvim_buf_get_name(src)
-    if path == "" then
-        return
-    end
-
-    if vim.fn.filereadable(bookmarks_file) ~= 1 then
-        return
-    end
+    if path == "" or vim.fn.filereadable(bookmarks_file) ~= 1 then return end
 
     local lines = vim.fn.readfile(bookmarks_file)
-    if #lines == 0 then
-        return
-    end
+    if #lines == 0 then return end
 
     local ok, data = pcall(vim.json.decode, table.concat(lines, "\n"))
-    if not ok or type(data) ~= "table" then
-        return
-    end
+    if not ok or type(data) ~= "table" then return end
 
     local saved = data[path]
-    if type(saved) ~= "table" then
-        return
-    end
+    if type(saved) ~= "table" then return end
 
     for _, idx in ipairs(saved) do
         idx = tonumber(idx)
@@ -77,29 +67,19 @@ end
 
 local function save_bookmarks()
     local src = M.source_buffer
-    if not src or not vim.api.nvim_buf_is_valid(src) then
-        return
-    end
+    if not src or not vim.api.nvim_buf_is_valid(src) then return end
 
     local path = vim.api.nvim_buf_get_name(src)
-    if path == "" then
-        return
-    end
+    if path == "" then return end
 
     local dir = vim.fn.fnamemodify(bookmarks_file, ":h")
     vim.fn.mkdir(dir, "p")
 
     local data = {}
-
     if vim.fn.filereadable(bookmarks_file) == 1 then
         local lines = vim.fn.readfile(bookmarks_file)
-
         if #lines > 0 then
-            local ok, decoded = pcall(
-                vim.json.decode,
-                table.concat(lines, "\n")
-            )
-
+            local ok, decoded = pcall(vim.json.decode, table.concat(lines, "\n"))
             if ok and type(decoded) == "table" then
                 data = decoded
             end
@@ -107,7 +87,6 @@ local function save_bookmarks()
     end
 
     local saved = {}
-
     for idx, marked in pairs(M.bookmarks) do
         local num_idx = tonumber(idx)
         if marked and num_idx then
@@ -116,18 +95,12 @@ local function save_bookmarks()
     end
 
     table.sort(saved)
-    
-    if #saved > 0 then
-        data[path] = saved
-    else
-        data[path] = nil
-    end
+    data[path] = #saved > 0 and saved or nil
 
     local json = vim.json.encode(data)
     local tmp = bookmarks_file .. ".tmp"
 
     local ok = pcall(vim.fn.writefile, vim.split(json, "\n"), tmp)
-
     if ok then
         pcall(vim.loop.fs_unlink, bookmarks_file)
         pcall(vim.loop.fs_rename, tmp, bookmarks_file)
@@ -135,21 +108,17 @@ local function save_bookmarks()
 end
 
 -- ==========================================
--- Синхронізація стану змін (Undo/Redo status)
+-- Синхронізація стану змін (Undo/Redo)
 -- ==========================================
 
---- Синхронізує прапорець M.is_changed з нативним станом буфера Neovim
 local function update_is_changed_status()
     if not M.source_buffer or not vim.api.nvim_buf_is_valid(M.source_buffer) then
         M.is_changed = false
         return
     end
-
-    -- Використовуємо нативний буферний прапорець 'modified'
     M.is_changed = vim.api.nvim_buf_get_option(M.source_buffer, "modified")
 end
 
---- Позначає поточний стан у буфері як збережений (чистий)
 function M.mark_as_clean()
     if M.source_buffer and vim.api.nvim_buf_is_valid(M.source_buffer) then
         vim.api.nvim_buf_set_option(M.source_buffer, "modified", false)
@@ -157,16 +126,8 @@ function M.mark_as_clean()
     M.is_changed = false
 end
 
--- ==========================================
--- Перевірка внутрішнього стану
--- ==========================================
-
 function M.is_busy()
-    if M.source_buffer ~= nil and vim.api.nvim_buf_is_valid(M.source_buffer) then
-        return true
-    end
-
-    return false
+    return M.source_buffer ~= nil and vim.api.nvim_buf_is_valid(M.source_buffer)
 end
 
 -- ==========================================
@@ -179,7 +140,6 @@ function M.reload_from_buffer()
     end
 
     local lines = vim.api.nvim_buf_get_lines(M.source_buffer, 0, -1, false)
-
     local cleaned_lines = {}
     for _, line in ipairs(lines) do
         if not line:match("^%*%s+AWARDS53") then
@@ -188,12 +148,11 @@ function M.reload_from_buffer()
     end
 
     local parsed = parser.parse(cleaned_lines, cfg.config.separator)
-
     M.records = parsed.records or {}
     M.headers = parsed.headers or {}
 
     load_bookmarks()
-    
+
     if M.records[1] and M.records[1]["1"] then
         local val = M.records[1]["1"]
         if type(val) == "table" then
@@ -213,13 +172,10 @@ function M.reload_from_buffer()
 
     M.renumber()
     update_is_changed_status()
-
     return true
 end
 
 function M.snapshot()
-    -- Снапшот виконується автоматично через модифікацію джерельного буфера.
-    -- Оновлюємо статус змін відповідно до буфера.
     update_is_changed_status()
 end
 
@@ -234,11 +190,7 @@ function M.undo_last()
     end
 
     local tick_before = vim.api.nvim_buf_get_changedtick(M.source_buffer)
-
-    vim.api.nvim_buf_call(M.source_buffer, function()
-        vim.cmd("silent! undo")
-    end)
-
+    vim.api.nvim_buf_call(M.source_buffer, function() vim.cmd("silent! undo") end)
     local tick_after = vim.api.nvim_buf_get_changedtick(M.source_buffer)
 
     if tick_before == tick_after then
@@ -248,7 +200,6 @@ function M.undo_last()
 
     M.reload_from_buffer()
     utils.info("Скасовано (Undo)")
-
     return true
 end
 
@@ -259,11 +210,7 @@ function M.redo_last()
     end
 
     local tick_before = vim.api.nvim_buf_get_changedtick(M.source_buffer)
-
-    vim.api.nvim_buf_call(M.source_buffer, function()
-        vim.cmd("silent! redo")
-    end)
-
+    vim.api.nvim_buf_call(M.source_buffer, function() vim.cmd("silent! redo") end)
     local tick_after = vim.api.nvim_buf_get_changedtick(M.source_buffer)
 
     if tick_before == tick_after then
@@ -273,7 +220,6 @@ function M.redo_last()
 
     M.reload_from_buffer()
     utils.info("Повторено (Redo)")
-
     return true
 end
 
@@ -291,28 +237,18 @@ function M.get_undo_list()
 
     local function traverse(nodes)
         for _, node in ipairs(nodes) do
-            local is_cur = (node.seq == current_seq)
-            local time_str = os.date("%H:%M:%S", node.time)
-            local preview = node.seq == 0 and "Початковий стан" or string.format("Запис #%d", node.seq)
-
             table.insert(entries, {
                 seq = node.seq,
-                time = time_str,
-                is_current = is_cur,
+                time = os.date("%H:%M:%S", node.time),
+                is_current = (node.seq == current_seq),
                 save = node.save,
-                preview = preview,
+                preview = node.seq == 0 and "Початковий стан" or string.format("Запис #%d", node.seq),
             })
-
-            if node.alt then
-                traverse(node.alt)
-            end
+            if node.alt then traverse(node.alt) end
         end
     end
 
-    if tree.entries then
-        traverse(tree.entries)
-    end
-
+    if tree.entries then traverse(tree.entries) end
     return entries
 end
 
@@ -328,7 +264,6 @@ function M.restore_to_seq(seq)
 
     M.reload_from_buffer()
     utils.info("Відновлено стан №" .. seq)
-
     return true
 end
 
@@ -336,13 +271,8 @@ end
 -- Геттери та Сеттери
 -- ==========================================
 
-function M.set_source_win(win)
-    M.source_win = win
-end
-
-function M.get_source_win()
-    return M.source_win
-end
+function M.set_source_win(win) M.source_win = win end
+function M.get_source_win() return M.source_win end
 
 function M.set_source_buffer(buf)
     M.source_buffer = buf
@@ -357,48 +287,16 @@ function M.set_source_buffer(buf)
     update_is_changed_status()
 end
 
-function M.get_source_buffer()
-    return M.source_buffer
-end
-
-function M.data()
-    return {
-        headers = M.headers,
-        records = M.records,
-    }
-end
-
-function M.mode()
-    return M.current_mode
-end
-
-function M.set_mode(mode)
-    M.current_mode = mode
-end
-
-function M.count()
-    return #M.records
-end
-
-function M.index()
-    return M.current
-end
-
-function M.current_record()
-    return M.records[M.current]
-end
-
-function M.headers_list()
-    return M.headers
-end
-
-function M.field_index()
-    return M.field
-end
-
-function M.field_name()
-    return M.headers[M.field]
-end
+function M.get_source_buffer() return M.source_buffer end
+function M.data() return { headers = M.headers, records = M.records } end
+function M.mode() return M.current_mode end
+function M.set_mode(mode) M.current_mode = mode end
+function M.count() return #M.records end
+function M.index() return M.current end
+function M.current_record() return M.records[M.current] end
+function M.headers_list() return M.headers end
+function M.field_index() return M.field end
+function M.field_name() return M.headers[M.field] end
 
 -- ==========================================
 -- Закладки
@@ -406,7 +304,6 @@ end
 
 function M.toggle_bookmark()
     local idx = M.current
-
     if M.bookmarks[idx] then
         M.bookmarks[idx] = nil
         save_bookmarks()
@@ -416,7 +313,6 @@ function M.toggle_bookmark()
         save_bookmarks()
         utils.info("Встановлено закладку на картку № " .. idx)
     end
-
     return true
 end
 
@@ -433,7 +329,6 @@ function M.next_bookmark()
     for _ = 1, n do
         start = start + 1
         if start > n then start = 1 end
-
         if M.bookmarks[start] then
             M.current = start
             M.field = M.last_field
@@ -453,7 +348,6 @@ function M.prev_bookmark()
     for _ = 1, n do
         start = start - 1
         if start < 1 then start = n end
-
         if M.bookmarks[start] then
             M.current = start
             M.field = M.last_field
@@ -477,19 +371,16 @@ end
 
 function M.collapse_empty_fields_globally()
     local original_headers_count = #M.headers
-
     if original_headers_count <= 1 then
         utils.info("У базі лише 1 поле. Нічого видаляти.")
         return false
     end
 
     M.snapshot()
-
     local max_non_empty_index = 1
 
     for _, record in ipairs(M.records) do
         local non_empty_values = {}
-
         for idx = 1, original_headers_count do
             local key = tostring(idx)
             local val = record[key]
@@ -517,7 +408,6 @@ function M.collapse_empty_fields_globally()
 
         for idx = 1, original_headers_count do
             local key = tostring(idx)
-
             if idx <= #non_empty_values then
                 record[key] = non_empty_values[idx]
             else
@@ -546,10 +436,8 @@ function M.collapse_empty_fields_globally()
     end
 
     M.last_field = M.field
-
     M.sync_to_disk()
     utils.info(string.format("Успішно видалено порожні поля. Максимум полів: %d", max_non_empty_index))
-
     return true
 end
 
@@ -559,7 +447,6 @@ local function process_flat_field(record, key)
 
     local combined = type(val) == "table" and table.concat(val, " ") or tostring(val)
     combined = combined:gsub("%s+", " ")
-
     return { combined }
 end
 
@@ -573,19 +460,21 @@ function M.flatten_current_field()
 
     M.snapshot()
     record[key] = result
-
     M.sync_to_disk()
     utils.info("Усі рядки в полі сплющено")
-
     return true
 end
 
+-- Оптимізована функція (обробка в один прохід)
 function M.flatten_field_globally()
     local key = tostring(M.field)
     local count = 0
 
-    for _, record in ipairs(M.records) do
-        if process_flat_field(record, key) then
+    local pending_changes = {}
+    for i, record in ipairs(M.records) do
+        local result = process_flat_field(record, key)
+        if result then
+            pending_changes[i] = result
             count = count + 1
         end
     end
@@ -596,16 +485,11 @@ function M.flatten_field_globally()
     end
 
     M.snapshot()
-
-    for _, record in ipairs(M.records) do
-        local result = process_flat_field(record, key)
-        if result then
-            record[key] = result
-        end
+    for idx, new_val in pairs(pending_changes) do
+        M.records[idx][key] = new_val
     end
 
     M.sync_to_disk()
-
     utils.info(count .. " карток сплющено")
     return true
 end
@@ -620,7 +504,6 @@ local function adjust_navigation(new_pos)
         M.field = M.last_field
         return true
     end
-
     return false
 end
 
@@ -730,7 +613,6 @@ function M.paste_after()
     table.insert(M.records, insert_pos, vim.deepcopy(parsed.records[1]))
 
     M.current = insert_pos
-
     M.renumber()
     M.sync_to_disk()
 
@@ -746,12 +628,10 @@ function M.move_field_content_up()
 
     M.snapshot()
     local current_key, prev_key = tostring(idx), tostring(idx - 1)
-
     record[current_key], record[prev_key] = record[prev_key], record[current_key]
 
     M.field = idx - 1
     M.last_field = M.field
-
     M.sync_to_disk()
     return true
 end
@@ -765,12 +645,10 @@ function M.move_field_content_down()
 
     M.snapshot()
     local current_key, next_key = tostring(idx), tostring(idx + 1)
-
     record[current_key], record[next_key] = record[next_key], record[current_key]
 
     M.field = idx + 1
     M.last_field = M.field
-
     M.sync_to_disk()
     return true
 end
@@ -788,10 +666,8 @@ function M.move_field_globally_up()
 
     M.field = idx - 1
     M.last_field = M.field
-
     M.sync_to_disk()
     utils.info("Поле переміщено вгору у всіх картках!")
-
     return true
 end
 
@@ -808,10 +684,8 @@ function M.move_field_globally_down()
 
     M.field = idx + 1
     M.last_field = M.field
-
     M.sync_to_disk()
     utils.info("Поле переміщено вниз у всіх картках!")
-
     return true
 end
 
@@ -826,7 +700,6 @@ function M.set(data)
     M.current_mode = "NORMAL"
 
     load_bookmarks()
-
     M.mark_as_clean()
     M.renumber()
 end
@@ -861,31 +734,26 @@ function M.sort_by(field)
                 return va < vb
             end
         end
-
         return false
     end
 
-    -- 1. Зберігаємо посилання на поточну картку, щоб зберегти фокус після сортування
     local current_rec = M.records[M.current]
 
-    -- 2. "Прив'язуємо" закладку до самого об'єкта картки
     for i, rec in ipairs(M.records) do
         rec._is_bookmarked = M.bookmarks[i] == true
     end
 
-    -- 3. Виконуємо сортування масиву записів
     table.sort(M.records, function(a, b)
         return uk_cmp(norm(a[field]), norm(b[field]))
     end)
 
-    -- 4. Відновлюємо таблицю M.bookmarks з новими індексами та шукаємо нову позицію поточної картки
     M.bookmarks = {}
     local new_current = 1
 
     for i, rec in ipairs(M.records) do
         if rec._is_bookmarked then
             M.bookmarks[i] = true
-            rec._is_bookmarked = nil -- Очищаємо тимчасове службове поле
+            rec._is_bookmarked = nil
         end
 
         if current_rec and rec == current_rec then
@@ -893,11 +761,8 @@ function M.sort_by(field)
         end
     end
 
-    -- 5. Оновлюємо курсор та нумерацію
     M.current = new_current
     M.renumber()
-
-    -- 6. Зберігаємо оновлені індекси закладок у JSON та синхронізуємо з диском
     save_bookmarks()
     M.sync_to_disk()
 end
@@ -915,24 +780,19 @@ function M.new_record()
 
     M.current = #M.records
     M.field = 1
-
     M.sync_to_disk()
 end
 
 function M.delete_current()
-    if #M.records <= 1 then
-        return false
-    end
+    if #M.records <= 1 then return false end
 
     M.snapshot()
-
     local deleted_idx = M.current
     local new_bookmarks = {}
 
     for idx, marked in pairs(M.bookmarks) do
         if marked then
             idx = tonumber(idx)
-
             if idx < deleted_idx then
                 new_bookmarks[idx] = true
             elseif idx > deleted_idx then
@@ -942,16 +802,13 @@ function M.delete_current()
     end
 
     table.remove(M.records, deleted_idx)
-
     M.bookmarks = new_bookmarks
-
     M.current = math.min(M.current, #M.records)
     M.field = 1
 
     M.renumber()
     save_bookmarks()
     M.sync_to_disk()
-
     return true
 end
 
@@ -967,62 +824,40 @@ function M.new_field(default_value)
         for i = total_headers, insert_idx, -1 do
             record[tostring(i + 1)] = record[tostring(i)]
         end
-
         record[tostring(insert_idx)] = { val }
     end
 
     table.insert(M.headers, insert_idx, tostring(insert_idx))
-
-    -- Полностью нормализуем номера заголовков.
-    for i = 1, #M.headers do
-        M.headers[i] = tostring(i)
-    end
+    normalize_headers()
 
     M.field = insert_idx
     M.last_field = M.field
-
     M.sync_to_disk()
     return true
 end
 
 function M.delete_field()
-    if #M.headers <= 1 then
-        return false
-    end
+    if #M.headers <= 1 then return false end
 
     local idx = M.field
     local total = #M.headers
-
-    if idx < 1 or idx > total then
-        return false
-    end
+    if idx < 1 or idx > total then return false end
 
     M.snapshot()
 
-    -- Сдвигаем содержимое всех последующих полей влево.
     for _, record in ipairs(M.records) do
         for i = idx, total - 1 do
             record[tostring(i)] = record[tostring(i + 1)]
         end
-
-        -- Удаляем последнее поле.
         record[tostring(total)] = nil
     end
 
-    -- Удаляем заголовок.
     table.remove(M.headers, idx)
+    normalize_headers()
 
-    -- Перенумеровываем заголовки.
-    for i = 1, #M.headers do
-        M.headers[i] = tostring(i)
-    end
-
-    -- После удаления остаёмся на ближайшем существующем поле.
     M.field = math.min(idx, #M.headers)
     M.last_field = M.field
-
     M.sync_to_disk()
-
     return true
 end
 
