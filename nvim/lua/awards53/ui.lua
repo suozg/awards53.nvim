@@ -175,11 +175,18 @@ local function render_body_with_ranges()
     return full_lines, adjusted_ranges
 end
 
+local fio_ns = vim.api.nvim_create_namespace("awards53_fio_hint")
+
 function M.redraw()
     if inline.edit_state.active then
         return
     end
 
+    if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
+        -- Очищаємо підказки ПІБ при перемалюванні картки
+        vim.api.nvim_buf_clear_namespace(M.body_buf, fio_ns, 0, -1)
+    end
+    
     update_header_highlight()
 
     if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then
@@ -218,6 +225,12 @@ function M.redraw()
 
     update_ui_buffer_title()
     vim.cmd("redrawstatus!")
+
+    -- Малюємо підказку ПІБ (спрацює ТІЛЬКИ якщо lock_processed == true)
+    pcall(function()
+        require("awards53.search_with_lock").render_fio_hint()
+    end)
+
 end
 
 function M.open_undotree_window()

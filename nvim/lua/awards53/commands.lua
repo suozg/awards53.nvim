@@ -129,7 +129,6 @@ local function open_cards()
     ui.open()
 end
 
-
 function M.sync_org_buffer()
     local buf = state.get_source_buffer()
 
@@ -176,8 +175,8 @@ function M.save_cards()
         return false
     end
 
-    -- Сначала проверяем: есть ли несохранённые изменения у исходного файла
-    local ok, src_modified = pcall(vim.api.nvim_buf_get_option, buf, "modified")
+    -- Спочатку перевіряємо: чи є незбережені зміни у вихідного файла
+    local ok, src_modified = pcall(vim.api.nvim_get_option, buf, "modified")
     if not ok then src_modified = false end
 
     if src_modified then
@@ -185,12 +184,12 @@ function M.save_cards()
         return false
     end
 
-    -- Если исходный файл чист — синхронизируем содержимое блока из state в буфер
+    -- Якщо вихідний файл чистий — синхронізуємо вміст блоку зі state у буфер
     if not M.sync_org_buffer() then
         return false
     end
 
-    -- Теперь безопасно записываем файл на диск
+    -- Тепер безпечно записуємо файл на диск
     local suc, err = pcall(function()
         vim.api.nvim_buf_call(buf, function() vim.cmd("write") end)
     end)
@@ -205,11 +204,37 @@ function M.save_cards()
 end
 
 function M.setup()
+    -- 1. Реєстрація команд Neovim (:Awards53, :Awards53Search, :Awards53LockProcess і т.д.)
     local commands = {
         Awards53 = open_cards,
 
         Awards53abbr = function()
             require("awards53.abbreviations").edit_config()
+        end,
+
+        -- Пошук у SQL-базі
+        Awards53SearchSql = function()
+            require("awards53.search_with_lock").run_sql_search()
+        end,
+
+        -- Звичайний пошук по зашифрованих файлах
+        Awards53Search = function()
+            require("awards53.search_with_lock").run_search()
+        end,
+
+        -- Пакетний пошук усіх РНОКПП з org-файлу та збереження в .lock
+        Awards53LockProcess = function()
+            require("awards53.search_with_lock").process_org_rnokpp_to_lock()
+        end,
+
+        -- Відображення ПІБ з .lock файлу поруч із РНОКПП (тільки якщо пакетна обробка виконана)
+        Awards53ShowFio = function()
+            local search = require("awards53.search_with_lock")
+            if not search.lock_processed then
+                utils.warn("⚠️ Спочатку запустіть обробку .lock файлу (Awards53LockProcess)!")
+                return
+            end
+            search.show_fio_near_rnokpp()
         end,
     }
 
@@ -217,6 +242,20 @@ function M.setup()
         pcall(vim.api.nvim_del_user_command, cmd_name)
         vim.api.nvim_create_user_command(cmd_name, callback, {})
     end
+
+    -- 2. Прив'язка гарячих клавіш
+    local search = require("awards53.search_with_lock")
+    
+    vim.keymap.set("n", "<leader>sb", search.run_sql_search, { desc = "Awards53: Пошук в SQL DB" })
+    vim.keymap.set("n", "<leader>sf", search.run_search, { desc = "Awards53: Пошук у файлах shtat" })
+    vim.keymap.set("n", "<leader>sl", search.process_org_rnokpp_to_lock, { desc = "Awards53: Пакетний пошук РНОКПП в .lock" })
+    vim.keymap.set("n", "<leader>si", function()
+        if not search.lock_processed then
+            utils.warn("⚠️ Спочатку запустіть обробку .lock файлу (<leader>sl)!")
+            return
+        end
+        search.show_fio_near_rnokpp()
+    end, { desc = "Awards53: Показати ПІБ з .lock" })
 end
 
 return M
