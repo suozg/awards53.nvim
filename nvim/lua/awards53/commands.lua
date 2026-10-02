@@ -170,16 +170,13 @@ function M.sync_org_buffer()
 end
 
 function M.save_cards()
-    if not M.sync_org_buffer() then
-        return false
-    end
-
     local buf = state.get_source_buffer()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
         utils.error("Буфер для збереження недоступний")
         return false
     end
 
+    -- Сначала проверяем: есть ли несохранённые изменения у исходного файла
     local ok, src_modified = pcall(vim.api.nvim_buf_get_option, buf, "modified")
     if not ok then src_modified = false end
 
@@ -188,6 +185,12 @@ function M.save_cards()
         return false
     end
 
+    -- Если исходный файл чист — синхронизируем содержимое блока из state в буфер
+    if not M.sync_org_buffer() then
+        return false
+    end
+
+    -- Теперь безопасно записываем файл на диск
     local suc, err = pcall(function()
         vim.api.nvim_buf_call(buf, function() vim.cmd("write") end)
     end)

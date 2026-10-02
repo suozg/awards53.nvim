@@ -122,22 +122,27 @@ local function clear_inline_field_highlights(buf, start_row, end_row)
     )
 end
 
+-- clear_inline_keymaps: удаляем те же клавиши, что ставим в set_inline_keymaps
 local function clear_inline_keymaps(buf)
     pcall(vim.api.nvim_del_augroup_by_name, "Awards53InlineCursorLock")
 
     if buf and vim.api.nvim_buf_is_valid(buf) then
+        -- удаляем только те маппинги, которые создаём
         pcall(vim.keymap.del, "i", "<Esc>", { buffer = buf })
-        pcall(vim.keymap.del, "n", "<Esc>", { buffer = buf })
         pcall(vim.keymap.del, "i", "<C-c>", { buffer = buf })
         pcall(vim.keymap.del, "n", "<C-c>", { buffer = buf })
-        for _, key in ipairs({ "R", "X", "S", "E" }) do
+        -- нормальные экшн-клавиши, которые устанавливали: R, X, T, C
+        for _, key in ipairs({ "R", "X", "T", "C" }) do
             pcall(vim.keymap.del, "n", key, { buffer = buf })
         end
     end
 end
 
 function M.cleanup(ui_state)
-    if M.edit_state.end_mark and ui_state.body_buf and vim.api.nvim_buf_is_valid(ui_state.body_buf) then
+    -- если буфер валиден — убедимся, что он снова не модифицируемый
+    if ui_state and ui_state.body_buf and vim.api.nvim_buf_is_valid(ui_state.body_buf) then
+        pcall(vim.api.nvim_buf_set_option, ui_state.body_buf, "modifiable", false)
+        -- удаляем extmark (если есть)
         pcall(
             vim.api.nvim_buf_del_extmark,
             ui_state.body_buf,
@@ -146,7 +151,7 @@ function M.cleanup(ui_state)
         )
     end
 
-    clear_inline_keymaps(ui_state.body_buf)
+    clear_inline_keymaps(ui_state and ui_state.body_buf or nil)
 
     M.edit_state = {
         active = false,
@@ -325,8 +330,10 @@ function M.cancel(ui_state, redraw_cb)
         local start_row = M.edit_state.start_row
         local end_row = mark_pos and mark_pos[1] and (mark_pos[1] - 1) or start_row
 
-        vim.bo[buf].modifiable = true
-        vim.api.nvim_buf_set_lines(buf, start_row, end_row + 1, false, M.edit_state.original_lines)
+        -- сделаем модификабельным, запишем и снова запретим редактирование
+        pcall(vim.api.nvim_buf_set_option, buf, "modifiable", true)
+        pcall(vim.api.nvim_buf_set_lines, buf, start_row, end_row + 1, false, M.edit_state.original_lines)
+        pcall(vim.api.nvim_buf_set_option, buf, "modifiable", false)
     end
 
     M.cleanup(ui_state)
