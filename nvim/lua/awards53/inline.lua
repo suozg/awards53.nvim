@@ -254,46 +254,50 @@ function M.commit(ui_state, redraw_cb)
     -- 2. Зчитуємо відредаговані рядки
     local edited_lines = vim.api.nvim_buf_get_lines(buf, start_row, end_row + 1, false)
 
-    -- 3. Оновлюємо значення поля в state.records
+    -- 3. Проверяем: есть ли unsaved изменения в исходном .org файле
+    local src_buf = state.get_source_buffer()
+    if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
+        local src_modified = vim.api.nvim_buf_get_option(src_buf, "modified")
+        if src_modified then
+            -- Блокируем коммит: просим пользователя сначала сохранить .org
+            utils.warn("Сохраните исходный .org-файл перед сохранением изменений картки.")
+            -- Восстанавливаем исходные строки inline (как при Ctrl-C)
+            M.cancel(ui_state, redraw_cb)
+            return
+        end
+    end
+
+    -- 4. Если всё чисто — применяем изменения в state и записываем в файл (если есть)
     local rec = state.records[M.edit_state.card_idx]
     if rec then
         state.snapshot()
         local field_key = tostring(M.edit_state.field)
         rec[field_key] = edited_lines
 
-        -- 4. Формуємо новий вміст файлу
-        local src_buf = state.get_source_buffer()
         if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
-
             local full_lines = serializer.build({
                 headers = state.headers,
                 records = state.records,
             })
 
-            -- Перевіряємо, чи в джерельному буфері є заголовок
             local first_line = vim.api.nvim_buf_get_lines(src_buf, 0, 1, false)[1] or ""
 
             if first_line:match("^%*%s+AWARDS53") then
-                -- Замінюємо все, ПОЧИНАЮЧИ З ДРУГОГО РЯДКА (індекс 1 в Nvim API)
                 vim.api.nvim_buf_set_lines(src_buf, 1, -1, false, full_lines)
             else
-                -- Якщо з якоїсь причини заголовка не було — оновлюємо повністю
                 vim.api.nvim_buf_set_lines(src_buf, 0, -1, false, full_lines)
             end
 
             vim.api.nvim_buf_call(src_buf, function()
-                vim.cmd("silent! write!")
+                pcall(vim.cmd, "silent! write!")
             end)
         end
     end
 
-    -- 5. Виходим з режиму редагування
+    -- 5. Заканчиваем редактирование
     M.cleanup(ui_state)
     state.set_mode("NORMAL")
-
-    if redraw_cb then
-        redraw_cb()
-    end
+    if redraw_cb then redraw_cb() end
 end
 
 function M.cancel(ui_state, redraw_cb)

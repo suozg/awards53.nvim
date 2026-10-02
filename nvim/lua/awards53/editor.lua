@@ -436,12 +436,23 @@ function M.save_core(buf)
         table.remove(clean_lines)
     end
 
-    state.snapshot()
+    -- Проверяем исходный .org буфер: если он имеет unsaved изменения — блокируем сохранение тут
+    local src = state.get_source_buffer()
+    if src and vim.api.nvim_buf_is_valid(src) then
+        local src_modified = vim.api.nvim_buf_get_option(src, "modified")
+        if src_modified then
+            utils.warn("Сохраните исходный .org-файл перед збереженням із editor.")
+            -- отмечаем, что editor-буфер всё ещё изменён (пользователь может продолжать)
+            vim.bo[buf].modified = true
+            return
+        end
+    end
 
+    -- Если исходный буфер чист, применяем изменения и синхронизируем
+    state.snapshot()
     record[field] = clean_lines
     vim.bo[buf].modified = false
 
-    local src = state.get_source_buffer()
     if src and vim.api.nvim_buf_is_valid(src) then
         local file_path = vim.api.nvim_buf_get_name(src)
 
@@ -449,18 +460,17 @@ function M.save_core(buf)
 
         vim.api.nvim_buf_call(src, function()
             if file_path and file_path ~= "" then
-                pcall(vim.cmd, "silent write! " .. vim.fn.fnameescape(file_path))
+                pcall(vim.cmd, "silent! write! " .. vim.fn.fnameescape(file_path))
             end
             vim.bo[src].modified = false
         end)
     end
 
     state.mark_as_clean()
-    
+
     update_buffer_title(buf, card_idx, field)
     vim.cmd("redrawstatus!")
 end
-
 
 function M.render_status()
     local buf = vim.api.nvim_get_current_buf()
