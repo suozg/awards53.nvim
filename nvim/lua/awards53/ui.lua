@@ -224,7 +224,6 @@ function M.redraw()
     end
 
     update_ui_buffer_title()
-    vim.cmd("redrawstatus!")
 
     -- Малюємо підказку ПІБ (спрацює ТІЛЬКИ якщо lock_processed == true)
     pcall(function()
@@ -601,28 +600,31 @@ function M.open()
         })
 
         -- Автокоманда для моментальной перерисовки разделителя при потере/получении фокуса
+        local function refresh_focus_highlighting()
+            if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then
+                return
+            end
+
+            -- Не робимо full redraw, лише оновлюємо extmarks:
+            apply_field_highlighting(M.body_buf)
+        end
+
         local focus_grp = vim.api.nvim_create_augroup("Awards53FocusToggle", { clear = true })
 
         vim.api.nvim_create_autocmd({ "WinEnter", "FocusGained" }, {
             buffer = M.body_buf,
             group = focus_grp,
-            callback = function()
-                M.redraw()
-            end,
+            callback = refresh_focus_highlighting,
         })
 
         vim.api.nvim_create_autocmd({ "WinLeave", "FocusLost" }, {
             buffer = M.body_buf,
             group = focus_grp,
             callback = function()
-                vim.schedule(function()
-                    if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
-                        M.redraw()
-                    end
-                end)
+                vim.schedule(refresh_focus_highlighting)
             end,
         })
-
+        
         local keys_to_disable = {
             "<Up>", "<Down>", "<Left>", "<Right>",
             "w", "b", "ge", "$", "^", "gg", "G"
@@ -711,7 +713,6 @@ function M.open()
                 callback = function()
                     if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
                         update_ui_buffer_title()
-                        vim.cmd("redrawstatus!")
                     end
                 end,
             })
