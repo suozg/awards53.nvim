@@ -92,21 +92,29 @@ function M.setup(opts)
     M.ns_rnokpp = vim.api.nvim_create_namespace("awards53_rnokpp")
 
     local function setup_highlights()
+        local hl = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
+        local bg_color = hl.bg and string.format("#%06x", hl.bg) or "NONE"
+       
         vim.cmd("highlight default link Awards53ActiveField CursorLine")
         vim.api.nvim_set_hl(0, "Awards53Help", { fg = "#897d6d", bg = "NONE" })
         vim.api.nvim_set_hl(0, "Awards53HelpText", { fg = "#897d6d", bg = "NONE", bold = false })
         vim.api.nvim_set_hl(0, "Awards53RnokppError", { link = "SpellBad", default = true })
-        vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { fg = "#ffffff", bg = "#739313", bold = true })
         vim.api.nvim_set_hl(0, "Awards53HiddenCursor", { blend = 100, nocombine = true })
-        vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { fg = "#739313" })
         vim.api.nvim_set_hl(0, "Awards53ChangedIndicator", { fg = "#b13337", bold = true })
         vim.api.nvim_set_hl(0, "Awards53Separator", { link = "Comment", default = true })
-        
-        local hl = vim.api.nvim_get_hl(0, { name = "CursorLine", link = false })
-        local bg_color = hl.bg and string.format("#%06x", hl.bg) or "NONE"
-
-        vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { fg = bg_color, bg = "NONE" })
         vim.api.nvim_set_hl(0, "Awards53ChangedIndicatorKarta", { fg = "#b13337", bg = bg_color, bold = true })
+        
+        -- Активное состояние (когда фокус в окне)
+        vim.api.nvim_set_hl(0, "Awards53ActiveField", { bg = "#d5c4a1", fg = "#3c3836" })
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefix", { fg = "#ffffff", bg = "#739313", bold = true })
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparator", { fg = "#739313", bg = "#d5c4a1" })
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffix", { fg = "#d5c4a1", bg = "NONE" })
+
+        -- НЕАКТИВНОЕ состояние (когда фокус потерян — затемненные/приглушенные цвета)
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldNC", { bg = "#222810", fg = "#777777" })
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldPrefixNC", { fg = "#888888", bg = "#3f500a", bold = true })
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldSeparatorNC", { fg = "#3f500a", bg = "#222810" })
+        vim.api.nvim_set_hl(0, "Awards53ActiveFieldSuffixNC", { fg = "#222810", bg = "NONE" })
     end
 
     setup_highlights()

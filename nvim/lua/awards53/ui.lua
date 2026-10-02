@@ -36,6 +36,15 @@ local function apply_field_highlighting(buf)
     local line_count = vim.api.nvim_buf_line_count(buf)
     local in_block = false
 
+    -- Определяем, находится ли фокус в окне карточки
+    local is_current_win = (M.body_win and vim.api.nvim_win_is_valid(M.body_win) and vim.api.nvim_get_current_win() == M.body_win)
+
+    -- Выбираем динамические группы подсветки в зависимости от фокуса
+    local hl_main   = is_current_win and syntax_group or "Awards53ActiveFieldNC"
+    local hl_prefix = is_current_win and "Awards53ActiveFieldPrefix" or "Awards53ActiveFieldPrefixNC"
+    local hl_sep    = is_current_win and "Awards53ActiveFieldSeparator" or "Awards53ActiveFieldSeparatorNC"
+    local hl_suffix = is_current_win and "Awards53ActiveFieldSuffix" or "Awards53ActiveFieldSuffixNC"
+
     for i = 0, line_count - 1 do
         local line = vim.api.nvim_buf_get_lines(buf, i, i + 1, false)[1]
 
@@ -70,35 +79,38 @@ local function apply_field_highlighting(buf)
 
             local end_col = last_sep and (last_sep - 1) or #line
 
+            -- Основное тело плашки (между разделителями)
             vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
                 end_row = i,
                 end_col = end_col,
-                hl_group = syntax_group,
+                hl_group = hl_main,
                 hl_eol = false,
                 priority = 100,
             })
 
+            -- Левый префикс ("Поле 1/4") и его разделитель
             if first_sep then
                 vim.api.nvim_buf_set_extmark(buf, NS_ID, i, 0, {
                     end_row = i,
                     end_col = first_sep - 1,
-                    hl_group = "Awards53ActiveFieldPrefix",
+                    hl_group = hl_prefix,
                     priority = 200,
                 })
 
                 vim.api.nvim_buf_set_extmark(buf, NS_ID, i, first_sep - 1, {
                     end_row = i,
                     end_col = first_sep - 1 + sep_len,
-                    hl_group = "Awards53ActiveFieldSeparator",
+                    hl_group = hl_sep,
                     priority = 200,
                 })
             end
 
+            -- Правый завершающий разделитель (суффикс)
             if last_sep then
                 vim.api.nvim_buf_set_extmark(buf, NS_ID, i, last_sep - 1, {
                     end_row = i,
                     end_col = last_sep - 1 + sep_len,
-                    hl_group = "Awards53ActiveFieldSuffix",
+                    hl_group = hl_suffix,
                     priority = 200,
                 })
             end
@@ -572,6 +584,29 @@ function M.open()
             group = cursor_grp,
             callback = function()
                 vim.o.guicursor = orig_guicursor
+            end,
+        })
+
+        -- Автокоманда для моментальной перерисовки разделителя при потере/получении фокуса
+        local focus_grp = vim.api.nvim_create_augroup("Awards53FocusToggle", { clear = true })
+
+        vim.api.nvim_create_autocmd({ "WinEnter", "FocusGained" }, {
+            buffer = M.body_buf,
+            group = focus_grp,
+            callback = function()
+                M.redraw()
+            end,
+        })
+
+        vim.api.nvim_create_autocmd({ "WinLeave", "FocusLost" }, {
+            buffer = M.body_buf,
+            group = focus_grp,
+            callback = function()
+                vim.schedule(function()
+                    if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
+                        M.redraw()
+                    end
+                end)
             end,
         })
 
