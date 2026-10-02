@@ -119,13 +119,16 @@ local function update_ui_buffer_title()
     end
 
     local src_buf = state.get_source_buffer()
-    local is_modified = state.is_changed
+    local is_src_modified = false
 
-    if src_buf and vim.api.nvim_buf_is_valid(src_buf) and vim.bo[src_buf].modified then
-        is_modified = true
+    if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
+        is_src_modified = vim.bo[src_buf].modified
     end
 
+    local is_modified = (state.is_changed or false) or is_src_modified
+
     vim.bo[M.body_buf].modified = is_modified
+
     local title = is_modified and "[+] Awards53" or "Awards53"
     pcall(vim.api.nvim_buf_set_name, M.body_buf, title)
 end
@@ -165,7 +168,6 @@ function M.redraw()
         return
     end
 
-    vim.bo.modified = state.is_changed
     update_header_highlight()
 
     if not (M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf)) then
@@ -206,8 +208,6 @@ function M.redraw()
     vim.cmd("redrawstatus!")
 end
 
-
--- Вікно історії змін (Undotree) з Diff
 function M.open_undotree_window()
     local entries = state.get_undo_list()
 
@@ -269,9 +269,6 @@ function M.open_undotree_window()
     vim.bo[preview_buf].buftype = "nofile"
 
     local diff_ns = vim.api.nvim_create_namespace("Awards53UndoDiff")
-
-    -- Фіксуємо стан документа на момент відкриття Undotree.
-    -- Під час перегляду історії він не повинен змінюватися.
     local src_buf = state.get_source_buffer()
 
     if not src_buf or not vim.api.nvim_buf_is_valid(src_buf) then
@@ -285,11 +282,7 @@ function M.open_undotree_window()
     end)
 
     local base_seq = base_tree.seq_cur
-
-    -- Кеш історичних станів.
     local target_cache = {}
-
-    -- Кеш уже готового diff.
     local diff_cache = {}
 
     local function update_preview()
@@ -305,18 +298,15 @@ function M.open_undotree_window()
             return
         end
 
-        -- Якщо цей diff вже рахували — просто показуємо його.
         local diff_lines = diff_cache[selected_seq]
 
         if not diff_lines then
             local target_lines = target_cache[selected_seq]
 
-            -- Поточний стан.
             if selected_seq == base_seq then
                 target_lines = base_lines
             end
 
-            -- Історичний стан ще не кешований.
             if not target_lines then
                 local current_tree = vim.api.nvim_buf_call(src_buf, function()
                     return vim.fn.undotree()
@@ -329,15 +319,8 @@ function M.open_undotree_window()
                         vim.cmd("noautocmd silent undo " .. selected_seq)
                     end)
 
-                    local lines = vim.api.nvim_buf_get_lines(
-                        src_buf,
-                        0,
-                        -1,
-                        false
-                    )
+                    local lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
 
-                    -- Повертаємо документ у стан,
-                    -- у якому він був до перегляду історії.
                     vim.api.nvim_buf_call(src_buf, function()
                         vim.cmd("noautocmd silent undo " .. current_seq)
                     end)
@@ -362,91 +345,45 @@ function M.open_undotree_window()
             })
 
             if diff_result == "" then
-                diff_lines = {
-                    "  (Змін немає / Поточний стан)"
-                }
+                diff_lines = { "  (Змін немає / Поточний стан)" }
             else
-                diff_lines = vim.split(diff_result, "\n", {
-                    trimempty = true,
-                })
+                diff_lines = vim.split(diff_result, "\n", { trimempty = true })
             end
 
             diff_cache[selected_seq] = diff_lines
         end
 
         vim.bo[preview_buf].modifiable = true
-
-        vim.api.nvim_buf_set_lines(
-            preview_buf,
-            0,
-            -1,
-            false,
-            diff_lines
-        )
-
+        vim.api.nvim_buf_set_lines(preview_buf, 0, -1, false, diff_lines)
         vim.bo[preview_buf].modifiable = false
 
-        vim.api.nvim_buf_clear_namespace(
-            preview_buf,
-            diff_ns,
-            0,
-            -1
-        )
+        vim.api.nvim_buf_clear_namespace(preview_buf, diff_ns, 0, -1)
 
         for i, line in ipairs(diff_lines) do
             local line_idx = i - 1
-
-            if line:sub(1, 1) == "+"
-                and not line:match("^%+%+%+") then
-
-                vim.api.nvim_buf_set_extmark(
-                    preview_buf,
-                    diff_ns,
-                    line_idx,
-                    0,
-                    {
-                        end_row = line_idx,
-                        end_col = #line,
-                        hl_group = "DiffAdd",
-                    }
-                )
-
-            elseif line:sub(1, 1) == "-"
-                and not line:match("^%-%-%-") then
-
-                vim.api.nvim_buf_set_extmark(
-                    preview_buf,
-                    diff_ns,
-                    line_idx,
-                    0,
-                    {
-                        end_row = line_idx,
-                        end_col = #line,
-                        hl_group = "DiffDelete",
-                    }
-                )
-
+            if line:sub(1, 1) == "+" and not line:match("^%+%+%+") then
+                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
+                    end_row = line_idx,
+                    end_col = #line,
+                    hl_group = "DiffAdd",
+                })
+            elseif line:sub(1, 1) == "-" and not line:match("^%-%-%-") then
+                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
+                    end_row = line_idx,
+                    end_col = #line,
+                    hl_group = "DiffDelete",
+                })
             elseif line:match("^@@") then
-
-                vim.api.nvim_buf_set_extmark(
-                    preview_buf,
-                    diff_ns,
-                    line_idx,
-                    0,
-                    {
-                        end_row = line_idx,
-                        end_col = #line,
-                        hl_group = "DiffLine",
-                    }
-                )
+                vim.api.nvim_buf_set_extmark(preview_buf, diff_ns, line_idx, 0, {
+                    end_row = line_idx,
+                    end_col = #line,
+                    hl_group = "DiffLine",
+                })
             end
         end
     end
 
-    local augroup = vim.api.nvim_create_augroup(
-        "Awards53UndoDiffPreview",
-        { clear = true }
-    )
+    local augroup = vim.api.nvim_create_augroup("Awards53UndoDiffPreview", { clear = true })
 
     vim.api.nvim_create_autocmd("CursorMoved", {
         group = augroup,
@@ -456,7 +393,6 @@ function M.open_undotree_window()
 
     update_preview()
 
-    
     local close_windows = function()
         pcall(vim.api.nvim_del_augroup_by_name, "Awards53UndoDiffPreview")
         if list_win and vim.api.nvim_win_is_valid(list_win) then
@@ -495,7 +431,6 @@ local function bind_keys()
         ["]]"]  = { function() state.last() end, true },
         ["<H>"] = { function() state.jump(5) end, true },
         ["<L>"] = { function() state.jump(-5) end, true },
-        -- переход до картки
         ["g"]   = { function()
             local total_records = state.count()
             if total_records == 0 then return end
@@ -514,7 +449,6 @@ local function bind_keys()
                 end)
             end
         end, false },
-        -- Перехід до поля за номером 
         ["gf"]   = { function()
             local total = #state.headers_list()
             if total == 0 then return end
@@ -535,44 +469,20 @@ local function bind_keys()
                 end)
             end
         end, false },
-        -- перехід по полям вверх-вниз
         ["j"]   = { function() return state.next_field() end, true },
         ["k"]   = { function() return state.prev_field() end, true },
-        -- Пошук у ~/STATISTIKA/shtat (по файлах / РНОКПП)
-        ["f"]   = { function() 
-            search_module.process_all_rnokpp() 
-        end, false },
-        -- Пошук по базі нагород (SQL)
-        ["a"]   = { function() 
-            search_module.run_sql_search() 
-        end, false },
-        -- переміщення полей вверх/вниз 
+        ["f"]   = { function() search_module.process_all_rnokpp() end, false },
+        ["a"]   = { function() search_module.run_sql_search() end, false },
         ["J"]   = { function() return state.move_field_content_down() end, true },
         ["K"]   = { function() return state.move_field_content_up() end, true },
-        -- закладки
         ["m"]   = { function() state.toggle_bookmark() end, true },
         ["]m"]  = { function() return state.next_bookmark() end, true },
         ["[m"]  = { function() return state.prev_bookmark() end, true },
-        -- редагування вкл/викл
-        ["i"] = {
-            function()
-                inline.start(M, M.redraw)
-            end,
-            false,
-        },
-        ["I"] = {
-            function()
-                state.set_mode("INSERT")
-                editor.open()
-            end,
-            false,
-        },
-        -- створити картку        
+        ["i"]   = { function() inline.start(M, M.redraw) end, false },
+        ["I"]   = { function() state.set_mode("INSERT") editor.open() end, false },
         ["A"]   = { function() state.new_record() M.redraw() state.set_mode("INSERT") M.redraw() editor.open() end, false },
-        -- створити поле
         ["F"]   = { function() if state.new_field() then M.redraw() utils.info("Додано нове поле №" .. state.field_name()) end end, false },
         ["F-"]  = { function() if state.new_field("-") then M.redraw() utils.info("Додано нове поле №" .. state.field_name() .. " із '-'") end end, false },
-        -- видалити поле 
         ["B"]   = { function()
             if state.delete_field() then
                 state.sync_to_disk()
@@ -582,7 +492,6 @@ local function bind_keys()
                 utils.error("Не вдалося видалити поле")
             end
         end, false },
-        -- видалити картку
         ["dd"]  = { function()
             state.copy_current()
             if state.delete_current() then
@@ -591,27 +500,12 @@ local function bind_keys()
                 utils.error("Не можна видалити останню картку")
             end
         end, true },
-        -- скопіювати картку
         ["yy"]  = { function() state.copy_current() utils.info("Картку скопійовано") end, false },
-        -- вставити карту
         ["p"]   = { function() return state.paste_after() end, true },
-        -- undo
-        ["u"]   = { function()
-            if state.undo_last() then
-                M.redraw()
-            end
-        end, false },
-        -- redo
-        ["<C-r>"] = { function()
-            if state.redo_last() then
-                M.redraw()
-            end
-        end, false },
-        -- undo menu
+        ["u"]   = { function() if state.undo_last() then M.redraw() end end, false },
+        ["<C-r>"] = { function() if state.redo_last() then M.redraw() end end, false },
         ["U"]   = { function() M.open_undotree_window() end, false },
-        -- fork 
         ["dp"]  = { function() move_karta.move_to_fork() end, true },
-        -- search
         ["/"]   = { function()
             vim.ui.input({ prompt = "Пошук " .. cfg.config.default_sort .. ": " }, function(t)
                 if t and t ~= "" then
@@ -620,7 +514,6 @@ local function bind_keys()
                 end
             end)
         end, false },
-        --пошук в полі
         ["g/"]  = { function()
             vim.ui.select(state.headers_list(), { prompt = "🔍 Шукати в полі:" }, function(f)
                 if f then
@@ -663,7 +556,6 @@ function M.open()
 
         update_ui_buffer_title()
 
-        -- обробка виду курсору - щоб він був в inline і зникав при виході
         local orig_guicursor = vim.o.guicursor
         local cursor_grp = vim.api.nvim_create_augroup("Awards53HiddenCursorToggle", { clear = true })
 
@@ -694,6 +586,13 @@ function M.open()
         bind_keys()
 
         local function save_card_action()
+            local src_buf = state.get_source_buffer()
+
+            if src_buf and vim.api.nvim_buf_is_valid(src_buf) and vim.bo[src_buf].modified then
+                utils.error("Помилка: Вихідний org-буфер має незбережені зміни! Спочатку збережіть (:w) org-файл.")
+                return
+            end
+
             local commands = require("awards53.commands")
             commands.save_cards()
             M.redraw()
@@ -743,6 +642,18 @@ function M.open()
         local src_buf = state.get_source_buffer()
         if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
             local group = vim.api.nvim_create_augroup("Awards53SourceSync", { clear = true })
+
+            vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+                buffer = src_buf,
+                group = group,
+                callback = function()
+                    if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
+                        update_ui_buffer_title()
+                        vim.cmd("redrawstatus!")
+                    end
+                end,
+            })
+
             vim.api.nvim_create_autocmd({ "BufWritePost" }, {
                 buffer = src_buf,
                 group = group,
@@ -771,7 +682,7 @@ function M.open()
                 end,
             })
         end
-        
+
         vim.api.nvim_create_autocmd("BufWipeout", {
             buffer = M.body_buf,
             callback = function()
@@ -807,7 +718,7 @@ function M.open()
     wo.cursorline = false
     wo.wrap = true
     wo.linebreak = true
-    
+
     M.redraw()
 end
 
