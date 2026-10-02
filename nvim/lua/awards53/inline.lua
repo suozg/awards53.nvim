@@ -240,40 +240,38 @@ function M.commit(ui_state, redraw_cb)
         return
     end
 
-    -- 1. Визначаємо межі відредагованого блоку в inline-буфері
-    local mark_pos = vim.api.nvim_buf_get_extmark_by_id(
-        buf,
-        M.inline_ns,
-        M.edit_state.end_mark,
-        {}
-    )
-
+    -- визначаємо межі inline-блоку
+    local mark_pos = vim.api.nvim_buf_get_extmark_by_id(buf, M.inline_ns, M.edit_state.end_mark, {})
     local start_row = M.edit_state.start_row
     local end_row = mark_pos and mark_pos[1] and (mark_pos[1] - 1) or start_row
 
-    -- 2. Зчитуємо відредаговані рядки
+    -- зчитуємо редаговані рядки (але НЕ пишемо їх у state поки не перевірили)
     local edited_lines = vim.api.nvim_buf_get_lines(buf, start_row, end_row + 1, false)
 
-    -- 3. Проверяем: есть ли unsaved изменения в исходном .org файле
+    -- перевіряємо, чи є джерельний .org-буфер і чи він незбережений
     local src_buf = state.get_source_buffer()
     if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
-        local src_modified = vim.api.nvim_buf_get_option(src_buf, "modified")
+        local ok, src_modified = pcall(vim.api.nvim_buf_get_option, src_buf, "modified")
+        if not ok then src_modified = false end
+
         if src_modified then
-            -- Блокируем коммит: просим пользователя сначала сохранить .org
-            utils.warn("Сохраните исходный .org-файл перед сохранением изменений картки.")
-            -- Восстанавливаем исходные строки inline (как при Ctrl-C)
+            -- Блокуємо збереження тут — просимо спочатку зберегти .org-файл
+            utils.warn("Спочатку збережіть вихідний .org-файл, потім збережіть картку.")
+            -- відміняємо inline-редагування (відновлюємо original_lines)
             M.cancel(ui_state, redraw_cb)
             return
         end
     end
 
-    -- 4. Если всё чисто — применяем изменения в state и записываем в файл (если есть)
+    -- якщо ми сюди дійшли — src чистий або його немає -> застосовуємо зміни у state і записуємо
     local rec = state.records[M.edit_state.card_idx]
     if rec then
         state.snapshot()
+
         local field_key = tostring(M.edit_state.field)
         rec[field_key] = edited_lines
 
+        -- якщо є src_buf — формуємо повний текст і перезаписуємо блок Awards53
         if src_buf and vim.api.nvim_buf_is_valid(src_buf) then
             local full_lines = serializer.build({
                 headers = state.headers,
@@ -281,20 +279,29 @@ function M.commit(ui_state, redraw_cb)
             })
 
             local first_line = vim.api.nvim_buf_get_lines(src_buf, 0, 1, false)[1] or ""
-
-            if first_line:match("^%*%s+AWARDS53") then
-                vim.api.nvim_buf_set_lines(src_buf, 1, -1, false, full_lines)
-            else
-                vim.api.nvim_buf_set_lines(src_buf, 0, -1, false, full_lines)
-            end
-
-            vim.api.nvim_buf_call(src_buf, function()
-                pcall(vim.cmd, "silent! write!")
+            local ok_set, err = pcall(function()
+                if first_line:match("^%*%s+AWARDS53") then
+                    vim.api.nvim_buf_set_lines(src_buf, 1, -1, false, full_lines)
+                else
+                    vim.api.nvim_buf_set_lines(src_buf, 0, -1, false, full_lines)
+                end
             end)
+
+            if not ok_set then
+                utils.error("Помилка підготовки запису: " .. tostring(err))
+            else
+                -- записуємо файл (використовуємо pcall на випадок помилки)
+                pcall(vim.api.nvim_buf_call, src_buf, function()
+                    pcall(vim.cmd, "silent! write!")
+                end)
+            end
         end
+
+        -- відмічаємо як збережено
+        state.mark_as_clean()
     end
 
-    -- 5. Заканчиваем редактирование
+    -- завершити inline
     M.cleanup(ui_state)
     state.set_mode("NORMAL")
     if redraw_cb then redraw_cb() end

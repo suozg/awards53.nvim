@@ -431,34 +431,33 @@ function M.save_core(buf)
     if not record then return end
 
     local clean_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-
     while #clean_lines > 0 and vim.trim(clean_lines[#clean_lines]) == "" do
         table.remove(clean_lines)
     end
 
-    -- Проверяем исходный .org буфер: если он имеет unsaved изменения — блокируем сохранение тут
+    -- перевіряємо, чи є незбережені зміни у .org
     local src = state.get_source_buffer()
     if src and vim.api.nvim_buf_is_valid(src) then
-        local src_modified = vim.api.nvim_buf_get_option(src, "modified")
+        local ok, src_modified = pcall(vim.api.nvim_buf_get_option, src, "modified")
+        if not ok then src_modified = false end
+
         if src_modified then
-            utils.warn("Сохраните исходный .org-файл перед збереженням із editor.")
-            -- отмечаем, что editor-буфер всё ещё изменён (пользователь может продолжать)
+            utils.warn("Спочатку збережіть вихідний .org-файл. Збереження з editor тимчасово заблоковано.")
+            -- не міняємо state, залишаємо редактор в модифікованому стані
             vim.bo[buf].modified = true
             return
         end
     end
 
-    -- Если исходный буфер чист, применяем изменения и синхронизируем
+    -- застосовуємо зміни у state та зберігаємо у файл
     state.snapshot()
     record[field] = clean_lines
     vim.bo[buf].modified = false
 
     if src and vim.api.nvim_buf_is_valid(src) then
-        local file_path = vim.api.nvim_buf_get_name(src)
-
         state.sync_to_disk()
-
-        vim.api.nvim_buf_call(src, function()
+        pcall(vim.api.nvim_buf_call, src, function()
+            local file_path = vim.api.nvim_buf_get_name(src)
             if file_path and file_path ~= "" then
                 pcall(vim.cmd, "silent! write! " .. vim.fn.fnameescape(file_path))
             end
@@ -467,7 +466,6 @@ function M.save_core(buf)
     end
 
     state.mark_as_clean()
-
     update_buffer_title(buf, card_idx, field)
     vim.cmd("redrawstatus!")
 end

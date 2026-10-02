@@ -175,31 +175,29 @@ function M.save_cards()
     end
 
     local buf = state.get_source_buffer()
-
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
         utils.error("Буфер для збереження недоступний")
         return false
     end
 
-    local ok, err = pcall(function()
-        vim.api.nvim_buf_call(buf, function()
-            vim.cmd("write")
-        end)
-    end)
+    local ok, src_modified = pcall(vim.api.nvim_buf_get_option, buf, "modified")
+    if not ok then src_modified = false end
 
-    if not ok then
-        utils.error("Помилка збереження: " .. tostring(err))
+    if src_modified then
+        utils.warn("Спочатку збережіть .org-файл вручну, потім збережіть картки через плагін.")
         return false
     end
 
-    if vim.bo[buf].modified then
-        utils.error("Файл не був записаний на диск")
+    local suc, err = pcall(function()
+        vim.api.nvim_buf_call(buf, function() vim.cmd("write") end)
+    end)
+    if not suc then
+        utils.error("Помилка збереження: " .. tostring(err))
         return false
     end
 
     state.mark_as_clean()
     utils.info("Збережено на диск")
-
     return true
 end
 
