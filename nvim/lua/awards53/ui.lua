@@ -496,7 +496,7 @@ local function bind_keys()
         end, false },
         ["j"]   = { function() return state.next_field() end, true },
         ["k"]   = { function() return state.prev_field() end, true },
-        ["f"]   = { function() search_module.process_all_rnokpp() end, false },
+        ["f"]   = { function() search_module.run_search() end, "Пошук в ~/STATISTIKA/shtat" },
         ["a"]   = { function() search_module.run_sql_search() end, false },
         ["J"]   = { function() return state.move_field_content_down() end, true },
         ["K"]   = { function() return state.move_field_content_up() end, true },

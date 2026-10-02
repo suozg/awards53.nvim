@@ -138,25 +138,17 @@ local function parse_csv_line(line)
     return fields
 end
 
-local function extract_fio_rnokpp_from_line(line, section_type)
+local function extract_fio_from_line(line)
     local fields = parse_csv_line(line)
-    local fio_idx, rnokpp_idx
-    if section_type == "alive" then
-        fio_idx, rnokpp_idx = 2, 21
-    elseif section_type == "excluded" then
-        fio_idx, rnokpp_idx = 2, 17
-    else
-        return nil, nil
-    end
+    local fio_idx = 2
 
-    if #fields < math.max(fio_idx, rnokpp_idx) then return nil, nil end
+    if #fields < fio_idx then return nil end
 
     local fio = vim.trim(fields[fio_idx] or "")
-    local rnokpp = vim.trim(fields[rnokpp_idx] or "")
-    if fio ~= "" and rnokpp:match("^%d%d%d%d%d%d%d%d%d%d$") then
-        return fio, rnokpp
+    if fio ~= "" then
+        return fio
     end
-    return nil, nil
+    return nil
 end
 
 -- ==================== СТВОРЕННЯ ВІКНА ВИБОРУ ====================
@@ -505,20 +497,13 @@ function M.process_org_rnokpp_to_lock()
                 function(obj)
                     vim.schedule(function()
                         if obj.code == 0 and obj.stdout then
-                            local section_type = nil
                             for _, line in ipairs(vim.split(obj.stdout, "\n", { trimempty = true })) do
                                 line = vim.trim(line)
-                                if line:find("живих людей") or line:find("Облік особового складу") then
-                                    section_type = "alive"
-                                elseif line:find("виключен") or line:find("Виключен") then
-                                    section_type = "excluded"
-                                end
-
-                                local fio, r = extract_fio_rnokpp_from_line(line, section_type)
-                                if fio and r == cur_rnokpp then
+                                local fio = extract_fio_from_line(line)
+                                if fio then
                                     save_pair_to_lock(lock_file, cur_rnokpp, fio)
                                     found_count = found_count + 1
-                                    break
+                                    break -- Знайшли ПІБ для cur_rnokpp, йдемо до наступного РНОКПП
                                 end
                             end
                         end
@@ -647,8 +632,5 @@ end
 
 -- Алиас для удобного вызова из `ui.redraw()`
 M.render_fio_hint = M.show_fio_near_rnokpp
-
--- Алиас совместимости со старым именем
-M.process_all_rnokpp = M.run_search
 
 return M

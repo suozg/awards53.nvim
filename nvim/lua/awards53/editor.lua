@@ -322,7 +322,7 @@ function M.open()
         ["<Esc>"] = { save_and_close, "Збережено" }, 
         ["zs"] = { function() require("awards53.abbreviations").select_and_insert() end, nil },
         ["zm"] = { function() require("awards53.abbreviations").manage_abbreviations() end, nil }, 
-        ["f"] = { function() search_module.process_all_rnokpp() end, "Пошук в ~/STATISTIKA/shtat" }, 
+        ["f"] = { function() search_module.run_search() end, "Пошук в ~/STATISTIKA/shtat" }, 
         ["E"] = { function() search_module.clear_passwords() end, "Скидання пароля" }, 
         ["a"] = { function() search_module.run_sql_search() end, "Пошук по базі нагород" },
         ["?"] = { function() require("awards53.help").open() end, false }, 
