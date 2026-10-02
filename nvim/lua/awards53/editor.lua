@@ -20,6 +20,43 @@ local help_lines = {
 -- -----------------------------------------------------------------------------
 -- ДОПОМІЖНІ ФУНКЦІЇ
 -- -----------------------------------------------------------------------------
+local function mode_info()
+    local mode = vim.fn.mode()
+    
+    local modes = {
+        ['n']      = { 'NORMAL', 'SLModeNormal' },
+        ['no']     = { 'N-OPERATOR', 'SLModeNormal' },
+        ['v']      = { 'VISUAL', 'SLModeVisual' },
+        ['V']      = { 'V-LINE', 'SLModeVisual' },
+        ['\22']    = { 'V-BLOCK', 'SLModeVisual' },
+        ['s']      = { 'SELECT', 'SLModeVisual' },
+        ['S']      = { 'S-LINE', 'SLModeVisual' },
+        ['\19']    = { 'S-BLOCK', 'SLModeVisual' },
+        ['i']      = { 'INSERT', 'SLModeInsert' },
+        ['ic']     = { 'INSERT', 'SLModeInsert' },
+        ['ix']     = { 'INSERT', 'SLModeInsert' },
+        ['R']      = { 'REPLACE', 'SLModeReplace' },
+        ['Rc']     = { 'REPLACE', 'SLModeReplace' },
+        ['Rx']     = { 'REPLACE', 'SLModeReplace' },
+        ['Rv']     = { 'V-REPLACE', 'SLModeReplace' },
+        ['c']      = { 'COMMAND', 'SLModeCommand' },
+        ['cv']     = { 'VIM EX', 'SLModeCommand' },
+        ['ce']     = { 'EX', 'SLModeCommand' },
+        ['r']      = { 'PROMPT', 'SLModeOther' },
+        ['rm']     = { 'MORE', 'SLModeOther' },
+        ['r?']     = { 'CONFIRM', 'SLModeOther' },
+        ['!']      = { 'SHELL', 'SLModeTerminal' },
+        ['t']      = { 'TERMINAL', 'SLModeTerminal' },
+    }
+
+    local current = modes[mode]
+    if current then
+        return current[1], current[2]
+    else
+        return mode:upper(), 'SLModeOther'
+    end
+end
+
 local function get_text_stats(buf)
     if not buf or not vim.api.nvim_buf_is_valid(buf) then
         return { lines = 0, words = 0, chars = 0 }
@@ -474,20 +511,62 @@ function M.render_status()
     local buf = vim.api.nvim_get_current_buf()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return "" end
 
+    if M.help_buf and buf == M.help_buf then
+        return M.render_help_status()
+    end
+
+    -- 1. Режим и динамическая подсветка разделителя
+    local mode_name, mode_hl = mode_info()
+
+    local mode_hl_info = vim.api.nvim_get_hl(0, { name = mode_hl, link = false })
+    local file_hl_info = vim.api.nvim_get_hl(0, { name = "SLFile", link = false })
+
+    -- fg — это цвет плашки режима, bg — это цвет фона следующего блока (SLFile)
+    if mode_hl_info and mode_hl_info.bg and file_hl_info and file_hl_info.bg then
+        vim.api.nvim_set_hl(0, "SLModeSep", {
+            fg = string.format("#%06x", mode_hl_info.bg),
+            bg = string.format("#%06x", file_hl_info.bg),
+        })
+    end
+
+    -- 2. Данные карточки и поля
     local card_idx = vim.b[buf].card_idx or state.index()
     local field = vim.b[buf].field_name or state.field_name()
     local field_idx = vim.b[buf].field_idx or state.field_index()
     
     local is_dirty = vim.bo[buf].modified or state.is_changed
-    local modified = is_dirty and "%#Awards53ChangedIndicator# [+]%* " or " "
+    local modified = is_dirty and "%#Awards53ChangedIndicator# [+]%#SLFile# " or " "
     local prev_hint = get_prev_field_preview(card_idx, field_idx)
-    if prev_hint ~= "" then prev_hint = " │" .. prev_hint end
 
-    return string.format(
-        " РЕДАКТУВАННЯ: Картка %d/%d, поле: %s%s%s │ :w - зберегти, :q або Esc - зберегти та вийти, :q! - вийти",
-        card_idx, state.count(), field, modified, prev_hint
-    )
+    local editor_info = string.format("РЕДАКТУВАННЯ: Картка %d/%d, поле '%s'%s%s", card_idx, state.count(), field, modified, prev_hint)
+
+    -- 3. Подсказки
+    local operations = ":w 🖪 зберегти | :q / Esc ⎘ зберегти й вийти | :q! ⏻ вийти"
+
+    -- 4. Сборка строки
+    return table.concat({
+        "%#" .. mode_hl .. "# ",
+        mode_name,
+        " ",
+
+        "%#SLModeSep#",
+
+        "%#SLFile# ",
+        editor_info,
+        " ",
+
+        "%#SLFileSep#",
+        
+        "%=",
+
+        "%#SLInfoSep#",
+
+        "%#SLRight# ",
+        operations,
+        " ",
+    })
 end
+
 
 function M.render_help_status()
     local current_buf = vim.api.nvim_get_current_buf()

@@ -104,9 +104,14 @@ function M.render()
     local mode_name, mode_hl = mode_info()
     
     -- Оновлюємо колір розділювача режиму безпосередньо перед рендером
-    local hl_info = vim.api.nvim_get_hl(0, { name = mode_hl, link = false })
-    if hl_info and hl_info.bg then
-        vim.api.nvim_set_hl(0, "SLModeSep", { fg = string.format("#%06x", hl_info.bg), bg = "#3c3836" })
+    local mode_hl_info = vim.api.nvim_get_hl(0, { name = mode_hl, link = false })
+    local file_hl_info = vim.api.nvim_get_hl(0, { name = "SLFile", link = false })
+
+    if mode_hl_info and mode_hl_info.bg and file_hl_info and file_hl_info.bg then
+        vim.api.nvim_set_hl(0, "SLModeSep", {
+            fg = string.format("#%06x", mode_hl_info.bg),
+            bg = string.format("#%06x", file_hl_info.bg),
+        })
     end
 
     local file_name = ""
