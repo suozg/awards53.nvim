@@ -3,9 +3,48 @@ local M = {}
 local state = require("awards53.state")
 
 -- -----------------------------------------------------------------------------
+-- Режими
+-- -----------------------------------------------------------------------------
+local function mode_info()
+    local mode = vim.fn.mode()
+    
+    local modes = {
+        ['n']      = { 'NORMAL', 'SLModeNormal' },
+        ['no']     = { 'N-OPERATOR', 'SLModeNormal' },
+        ['v']      = { 'VISUAL', 'SLModeVisual' },
+        ['V']      = { 'V-LINE', 'SLModeVisual' },
+        ['\22']    = { 'V-BLOCK', 'SLModeVisual' },
+        ['s']      = { 'SELECT', 'SLModeVisual' },
+        ['S']      = { 'S-LINE', 'SLModeVisual' },
+        ['\19']    = { 'S-BLOCK', 'SLModeVisual' },
+        ['i']      = { 'INSERT', 'SLModeInsert' },
+        ['ic']     = { 'INSERT', 'SLModeInsert' },
+        ['ix']     = { 'INSERT', 'SLModeInsert' },
+        ['R']      = { 'REPLACE', 'SLModeReplace' },
+        ['Rc']     = { 'REPLACE', 'SLModeReplace' },
+        ['Rx']     = { 'REPLACE', 'SLModeReplace' },
+        ['Rv']     = { 'V-REPLACE', 'SLModeReplace' },
+        ['c']      = { 'COMMAND', 'SLModeCommand' },
+        ['cv']     = { 'VIM EX', 'SLModeCommand' },
+        ['ce']     = { 'EX', 'SLModeCommand' },
+        ['r']      = { 'PROMPT', 'SLModeOther' },
+        ['rm']     = { 'MORE', 'SLModeOther' },
+        ['r?']     = { 'CONFIRM', 'SLModeOther' },
+        ['!']      = { 'SHELL', 'SLModeTerminal' },
+        ['t']      = { 'TERMINAL', 'SLModeTerminal' },
+    }
+
+    local current = modes[mode]
+    if current then
+        return current[1], current[2]
+    else
+        return mode:upper(), 'SLModeOther'
+    end
+end
+
+-- -----------------------------------------------------------------------------
 -- Кольори
 -- -----------------------------------------------------------------------------
-
 local function setup_statusline_colors()
     local light = vim.fn.filereadable(vim.fn.expand("~/.lightmode")) == 1
 
@@ -18,14 +57,31 @@ local function setup_statusline_colors()
     local right_bg  = light and "#bdae93" or "#504945"
     local right_fg  = light and "#3c3836" or "#ebdbb2"
 
+    -- Кольори режимів (переконайтеся, що фони підібрані відповідно)
+    local mode_bgs = {
+        SLModeNormal   = light and "#458588" or "#83a598",
+        SLModeInsert   = light and "#b8bb26" or "#b8bb26",
+        SLModeVisual   = light and "#d3869b" or "#d3869b",
+        SLModeReplace  = light and "#fb4934" or "#fb4934",
+        SLModeCommand  = light and "#fe8019" or "#fe8019",
+        SLModeTerminal = light and "#8ec07c" or "#8ec07c",
+        SLModeOther    = light and "#d5c4a1" or "#504945",
+    }
+
+    for hl, bg in pairs(mode_bgs) do
+        vim.api.nvim_set_hl(0, hl, { bg = bg, fg = "#282828", bold = true })
+    end
+
     -- Основний фон
-    vim.api.nvim_set_hl(0, "StatusLine", {
-        bg = file_bg,
-        fg = file_fg,
-    })
+    vim.api.nvim_set_hl(0, "StatusLine", { bg = file_bg, fg = file_fg })
 
     -- Файл
     vim.api.nvim_set_hl(0, "SLFile", { bg = file_bg, fg = file_fg })
+
+    -- Розділювач режим -> файл (динамічно береться колір поточного режиму)
+    local _, mode_hl = mode_info()
+    local current_mode_bg = mode_bgs[mode_hl] or file_bg
+    vim.api.nvim_set_hl(0, "SLModeSep", { fg = current_mode_bg, bg = file_bg })
 
     -- Розділювач файл → інформація про картку
     vim.api.nvim_set_hl(0, "SLFileSep", { fg = file_bg, bg = info_bg })
@@ -38,7 +94,6 @@ local function setup_statusline_colors()
 
     -- Права частина
     vim.api.nvim_set_hl(0, "SLRight", { bg = right_bg, fg = right_fg })
-
 end
 
 -- -----------------------------------------------------------------------------
@@ -46,6 +101,14 @@ end
 -- -----------------------------------------------------------------------------
 
 function M.render()
+    local mode_name, mode_hl = mode_info()
+    
+    -- Оновлюємо колір розділювача режиму безпосередньо перед рендером
+    local hl_info = vim.api.nvim_get_hl(0, { name = mode_hl, link = false })
+    if hl_info and hl_info.bg then
+        vim.api.nvim_set_hl(0, "SLModeSep", { fg = string.format("#%06x", hl_info.bg), bg = "#3c3836" })
+    end
+
     local file_name = ""
     local buf = state.get_source_buffer()
 
@@ -89,25 +152,30 @@ function M.render()
 
     local operations =
         "h◄ l► [[◀◀ ]]▶▶ #g m/[m]🔖 │ " ..
-        "S O⇄ A dp✥ dd✗ y⎘ p󰆑 :w🖪 | u c-r U󰓦 | ? | :q⏻"
+        "S O⇄ A dp✥ dd✗ y⎘ p󰆑 :w🖪 | u c-r U󰓦 | ? | :q⏻" 
 
     return table.concat({
+        "%#" .. mode_hl .. "# ",
+        mode_name,
+        " ",
+
+        "%#SLModeSep#",
+
         "%#SLFile# ",
         file_name,
         " ",
 
-        "%#SLFileSep#",
-
+        "%#SLFileSep#",
+        
         "%#SLInfo# ",
         card_info,
         " ",
         
         "%=",
 
-        "%#SLInfoSep#",
+        "%#SLInfoSep#",
 
         "%#SLRight# ",
-
         operations,
         " ",
     })
@@ -119,20 +187,15 @@ end
 
 local group = vim.api.nvim_create_augroup("AwardsStatusLineColors", { clear = true })
 
-vim.api.nvim_create_autocmd({
-    "BufEnter",
-    "WinEnter",
-    "ColorScheme",
-}, {
+-- Оновлюємо кольори синхронно і лише при зміні теми/файлу конфігурації
+vim.api.nvim_create_autocmd({ "ColorScheme", "VimEnter" }, {
     group = group,
     callback = function()
-        vim.schedule(function()
-            setup_statusline_colors()
-            vim.cmd("redrawstatus!")
-        end)
+        setup_statusline_colors()
     end,
 })
 
+-- Первинна ініціалізація кольорів під час завантаження
 setup_statusline_colors()
 
 return M
