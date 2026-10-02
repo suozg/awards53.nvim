@@ -11,7 +11,7 @@ local actions = require("awards53.actions")
 local move_karta = require("awards53.move_karta")
 local mappings = require("awards53.mappings")
 local inline = require("awards53.inline")
-local search_module = require("awards53.searchtxt")
+local search_module = require("awards53.search")
 
 M.body_buf = nil
 M.body_win = nil
@@ -228,7 +228,7 @@ function M.redraw()
 
     -- Малюємо підказку ПІБ (спрацює ТІЛЬКИ якщо lock_processed == true)
     pcall(function()
-        require("awards53.search_with_lock").render_fio_hint()
+        search_module.render_fio_hint()
     end)
 
 end

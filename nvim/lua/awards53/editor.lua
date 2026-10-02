@@ -11,7 +11,7 @@ M.help_win = nil -- Вікно підказок внизу
 local state = require("awards53.state")
 local utils = require("awards53.utils")
 local actions = require("awards53.actions")
-local search_module = require("awards53.searchtxt")
+local search_module = require("awards53.search")
 
 local help_lines = {
     " Поле: R/X - Автоформат [тут/всюди], T/C - Сплющити текст [тут/всюди] || Дані: f/a - Шукати [файл/sql*], E - Скинути пароль",

@@ -214,22 +214,22 @@ function M.setup()
 
         -- Пошук у SQL-базі
         Awards53SearchSql = function()
-            require("awards53.search_with_lock").run_sql_search()
+            require("awards53.search").run_sql_search()
         end,
 
         -- Звичайний пошук по зашифрованих файлах
         Awards53Search = function()
-            require("awards53.search_with_lock").run_search()
+            require("awards53.search").run_search()
         end,
 
         -- Пакетний пошук усіх РНОКПП з org-файлу та збереження в .lock
         Awards53LockProcess = function()
-            require("awards53.search_with_lock").process_org_rnokpp_to_lock()
+            require("awards53.search").process_org_rnokpp_to_lock()
         end,
 
         -- Відображення ПІБ з .lock файлу поруч із РНОКПП (тільки якщо пакетна обробка виконана)
         Awards53ShowFio = function()
-            local search = require("awards53.search_with_lock")
+            local search = require("awards53.search")
             if not search.lock_processed then
                 utils.warn("⚠️ Спочатку запустіть обробку .lock файлу (Awards53LockProcess)!")
                 return
@@ -244,7 +244,7 @@ function M.setup()
     end
 
     -- 2. Прив'язка гарячих клавіш
-    local search = require("awards53.search_with_lock")
+    local search = require("awards53.search")
     
     vim.keymap.set("n", "<leader>sb", search.run_sql_search, { desc = "Awards53: Пошук в SQL DB" })
     vim.keymap.set("n", "<leader>sf", search.run_search, { desc = "Awards53: Пошук у файлах shtat" })
