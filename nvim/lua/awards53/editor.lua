@@ -5,17 +5,10 @@ local M = {}
 M.buf = nil -- Поточний буфер редактора
 M.win = nil -- Поточне вікно редактора
 
-M.help_buf = nil -- Буфер підказок
-M.help_win = nil -- Вікно підказок внизу
-
 local state = require("awards53.state")
 local utils = require("awards53.utils")
 local actions = require("awards53.actions")
 local search_module = require("awards53.search")
-
-local help_lines = {
-    " Поле: R/X - Автоформат [тут/всюди], T/C - Сплющити текст [тут/всюди] || Дані: f/a - Шукати [файл/sql*], E - Скинути пароль",
-}
 
 -- -----------------------------------------------------------------------------
 -- ДОПОМІЖНІ ФУНКЦІЇ
@@ -54,75 +47,6 @@ local function mode_info()
         return current[1], current[2]
     else
         return mode:upper(), 'SLModeOther'
-    end
-end
-
-local function get_text_stats(buf)
-    if not buf or not vim.api.nvim_buf_is_valid(buf) then
-        return { lines = 0, words = 0, chars = 0 }
-    end
-
-    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-    local line_count = #lines
-    local word_count = 0
-    local char_count = 0
-
-    for _, line in ipairs(lines) do
-        char_count = char_count + vim.fn.strchars(line)
-        for _ in string.gmatch(line, "%S+") do
-            word_count = word_count + 1
-        end
-    end
-
-    return { lines = line_count, words = word_count, chars = char_count }
-end
-
-
-local function setup_help_window()
-    if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then return end
-
-    vim.schedule(function()
-        if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then return end
-
-        if not (M.help_buf and vim.api.nvim_buf_is_valid(M.help_buf)) then
-            M.help_buf = vim.api.nvim_create_buf(false, true)
-            vim.api.nvim_buf_set_lines(M.help_buf, 0, -1, false, help_lines)
-            local h_bo = vim.bo[M.help_buf]
-            h_bo.buftype, h_bo.bufhidden, h_bo.swapfile, h_bo.modifiable = "nofile", "hide", false, false
-            h_bo.syntax = "OFF"
-        end
-
-        local ok, win = pcall(vim.api.nvim_open_win, M.help_buf, false, {
-            split = "below",
-            height = #help_lines,
-            win = -1,
-        })
-
-        if not ok or not win or not vim.api.nvim_win_is_valid(win) then
-            return
-        end
-
-        M.help_win = win
-
-        local h_wo = vim.wo[M.help_win]
-        h_wo.number, h_wo.relativenumber, h_wo.signcolumn, h_wo.colorcolumn, h_wo.spell = false, false, "no", "", false
-        h_wo.winfixheight = true
-        h_wo.statusline = "%!v:lua.require'awards53.editor'.render_help_status()"
-        h_wo.winhighlight = "Normal:Awards53Help,NormalNC:Awards53Help,SignColumn:Awards53Help"
-
-        local cfg = require("awards53")
-        local ns = cfg.ns_help or vim.api.nvim_create_namespace("awards53_editor_help")
-        vim.api.nvim_buf_clear_namespace(M.help_buf, ns, 0, -1)
-        for i = 0, #help_lines - 1 do
-            vim.api.nvim_buf_add_highlight(M.help_buf, ns, "Awards53HelpText", i, 0, -1)
-        end
-    end)
-end
-
-local function close_help_window()
-    if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then
-        pcall(vim.api.nvim_win_close, M.help_win, true)
-        M.help_win = nil
     end
 end
 
@@ -198,10 +122,7 @@ local function update_buffer_title(buf, card_idx, field_name)
         base_title = string.format("Картка %d (поле %s)", card_idx, field_name)
     end
 
-    -- Перевіряємо зміну локального буфера або глобального стану
     local is_modified = vim.bo[buf].modified or state.is_changed
-    
-    -- mini.tabline / mini.statusline реагують безпосередньо на vim.bo.modified
     vim.bo[buf].modified = is_modified
 
     local prefix = is_modified and "[+] " or ""
@@ -235,7 +156,6 @@ function M.open()
         vim.api.nvim_win_set_buf(0, existing_buf)
         M.win = vim.api.nvim_get_current_win()
         M.buf = existing_buf
-        setup_help_window()
         return
     end
 
@@ -270,10 +190,7 @@ function M.open()
 
     local wo = vim.wo[win]
     wo.spell, wo.statusline = true, "%!v:lua.require'awards53.editor'.render_status()"
-
     wo.cursorline = true
-    
-    setup_help_window()
 
     local group = vim.api.nvim_create_augroup("Awards53Editor_" .. buf, { clear = true })
 
@@ -289,7 +206,6 @@ function M.open()
     local function save_and_notify()
         M.save_core(buf)
         utils.highlight_rnokpp_in_buf(buf)
-        --utils.info("Зміни збережено в org-файл!")
     end
 
     vim.api.nvim_create_autocmd("BufWriteCmd", { 
@@ -322,10 +238,8 @@ function M.open()
             end
         end
 
-        close_help_window()
         state.opened_editors[key] = nil
 
-        -- Очищаем ссылки на окно и буфер, если закрываем текущий редактор
         if M.buf == buf then M.buf = nil end
         if M.win and vim.api.nvim_win_is_valid(M.win) and vim.api.nvim_win_get_buf(M.win) == buf then
             M.win = nil
@@ -382,19 +296,12 @@ function M.open()
         if uk ~= lhs then vim.keymap.set("n", uk, handler, key_opts) end
     end
 
-    vim.api.nvim_create_autocmd("BufLeave", {
-        buffer = buf,
-        group = group,
-        callback = function() close_help_window() end,
-    })
-
     vim.api.nvim_create_autocmd("BufEnter", {
         buffer = buf,
         group = group,
         callback = function()
             M.buf = buf
             M.win = vim.api.nvim_get_current_win()
-            setup_help_window()
         end,
     })
 
@@ -402,7 +309,6 @@ function M.open()
         buffer = buf,
         group = group,
         callback = function()
-            close_help_window()
             state.opened_editors[key] = nil
             state.set_mode("NORMAL")
 
@@ -472,21 +378,18 @@ function M.save_core(buf)
         table.remove(clean_lines)
     end
 
-    -- перевіряємо, чи є незбережені зміни у .org
     local src = state.get_source_buffer()
     if src and vim.api.nvim_buf_is_valid(src) then
-        local ok, src_modified = pcall(vim.api.nvim_buf_get_option, src, "modified")
+        local ok, src_modified = pcall(vim.api.nvim_get_option, src, "modified")
         if not ok then src_modified = false end
 
         if src_modified then
             utils.warn("Спочатку збережіть вихідний .org-файл. Збереження з editor тимчасово заблоковано.")
-            -- не міняємо state, залишаємо редактор в модифікованому стані
             vim.bo[buf].modified = true
             return
         end
     end
 
-    -- застосовуємо зміни у state та зберігаємо у файл
     state.snapshot()
     record[field] = clean_lines
     vim.bo[buf].modified = false
@@ -511,17 +414,12 @@ function M.render_status()
     local buf = vim.api.nvim_get_current_buf()
     if not buf or not vim.api.nvim_buf_is_valid(buf) then return "" end
 
-    if M.help_buf and buf == M.help_buf then
-        return M.render_help_status()
-    end
-
     -- 1. Режим и динамическая подсветка разделителя
     local mode_name, mode_hl = mode_info()
 
     local mode_hl_info = vim.api.nvim_get_hl(0, { name = mode_hl, link = false })
     local file_hl_info = vim.api.nvim_get_hl(0, { name = "SLFile", link = false })
 
-    -- fg — это цвет плашки режима, bg — это цвет фона следующего блока (SLFile)
     if mode_hl_info and mode_hl_info.bg and file_hl_info and file_hl_info.bg then
         vim.api.nvim_set_hl(0, "SLModeSep", {
             fg = string.format("#%06x", mode_hl_info.bg),
@@ -535,13 +433,20 @@ function M.render_status()
     local field_idx = vim.b[buf].field_idx or state.field_index()
     
     local is_dirty = vim.bo[buf].modified or state.is_changed
-    local modified = is_dirty and "%#Awards53ChangedIndicator# [+]%#SLFile# " or " "
+    local modified = is_dirty and "%#Awards53ChangedIndicator#[+]%#SLFile# " or " "
     local prev_hint = get_prev_field_preview(card_idx, field_idx)
 
-    local editor_info = string.format("РЕДАКТУВАННЯ: Картка %d/%d, поле '%s'%s%s", card_idx, state.count(), field, modified, prev_hint)
+    local editor_info = string.format(
+        "Картка %d/%d, поле '%s'%s  %s", 
+        card_idx, 
+        state.count(), 
+        field,
+        prev_hint,
+        modified 
+    )
 
     -- 3. Подсказки
-    local operations = ":w 🖪 зберегти | :q / Esc ⎘ зберегти й вийти | :q! ⏻ вийти"
+    local operations = ":w/:q/Esc🖪  | ? | :q!⏻"
 
     -- 4. Сборка строки
     return table.concat({
@@ -559,31 +464,12 @@ function M.render_status()
         
         "%=",
 
-        "%#SLInfoSep#",
+        "%#SLFileSep#",
 
-        "%#SLRight# ",
+        "%#SLFile# ",
         operations,
         " ",
     })
-end
-
-
-function M.render_help_status()
-    local current_buf = vim.api.nvim_get_current_buf()
-    local stats = get_text_stats(current_buf)
-    
-    local left = string.format(" 📊 Символів: %d  │  Слів: %d  │  Рядків: %d", stats.chars, stats.words, stats.lines)
-    local right = "(c) suozg, 2026"
-
-    local width = 80
-    if M.help_win and vim.api.nvim_win_is_valid(M.help_win) then
-        width = vim.api.nvim_win_get_width(M.help_win)
-    end
-
-    local padding = width - vim.fn.strdisplaywidth(left) - vim.fn.strdisplaywidth(right)
-    if padding < 1 then padding = 1 end
-
-    return left .. string.rep(" ", padding) .. right
 end
 
 function M.mark_as_saved(buf)

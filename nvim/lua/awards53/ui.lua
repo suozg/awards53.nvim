@@ -212,6 +212,21 @@ function M.redraw()
     vim.api.nvim_buf_set_lines(M.body_buf, 0, -1, false, full_lines)
     vim.bo[M.body_buf].modifiable = false
 
+    -- Автоматично підсвічуємо ліву частину шапки:
+    if full_lines[1] then
+        local header_ns = vim.api.nvim_create_namespace("awards53_header_hl")
+        vim.api.nvim_buf_clear_namespace(M.body_buf, header_ns, 0, 1)
+        
+        -- Шукаємо позицію першого пробілу з розділювача після тексту копирайту
+        local right_bracket_pos = full_lines[1]:find("]")
+        if right_bracket_pos then
+            vim.api.nvim_buf_add_highlight(M.body_buf, header_ns, "Awards53Help", 0, 0, right_bracket_pos)
+        end
+    end
+
+    utils.highlight_rnokpp_in_buf(M.body_buf)
+    apply_field_highlighting(M.body_buf)
+    
     utils.highlight_rnokpp_in_buf(M.body_buf)
     apply_field_highlighting(M.body_buf)
 

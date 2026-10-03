@@ -51,13 +51,13 @@ end
 local function setup_statusline_colors()
     local light = vim.fn.filereadable(vim.fn.expand("~/.lightmode")) == 1
 
-    local file_bg = light and "#d5c4a1" or "#3c3836"
+    local file_bg = light and "#d5c4a1" or "#3c3836"   -- 2-й колір
     local file_fg = light and "#3c3836" or "#ebdbb2"
 
-    local info_bg = light and "#ebdbb2" or "#4f4842"
+    local info_bg = light and "#ebdbb2" or "#4f4842"   -- 3-й колір (проміжний)
     local info_fg = light and "#3c3836" or "#ebdbb2"
 
-    local right_bg = light and "#bdae93" or "#504945"
+    local right_bg = light and "#bdae93" or "#504945"  -- 4-й колір
     local right_fg = light and "#3c3836" or "#ebdbb2"
 
     local mode_bgs = {
@@ -74,22 +74,21 @@ local function setup_statusline_colors()
         vim.api.nvim_set_hl(0, hl, { bg = bg, fg = "#282828", bold = true })
     end
 
-    vim.api.nvim_set_hl(0, "StatusLine", { bg = file_bg, fg = file_fg })
-    vim.api.nvim_set_hl(0, "SLFile", { bg = file_bg, fg = file_fg })
+    -- 1. Фон усього порожнього простору тепер проміжний (info_bg)
+    vim.api.nvim_set_hl(0, "StatusLine", { bg = info_bg, fg = info_fg })
 
+    -- 2. Блоки даних
+    vim.api.nvim_set_hl(0, "SLFile", { bg = file_bg, fg = file_fg })
+    vim.api.nvim_set_hl(0, "SLInfo", { bg = info_bg, fg = info_fg })
+
+    -- 3. Розділювачі ліворуч
     local _, mode_hl = mode_info()
     local current_mode_bg = mode_bgs[mode_hl] or file_bg
     vim.api.nvim_set_hl(0, "SLModeSep", { fg = current_mode_bg, bg = file_bg })
-
     vim.api.nvim_set_hl(0, "SLFileSep", { fg = file_bg, bg = info_bg })
-    vim.api.nvim_set_hl(0, "SLInfo", { bg = info_bg, fg = info_fg })
-    vim.api.nvim_set_hl(0, "SLInfoSep", { fg = right_bg, bg = info_bg })
-    vim.api.nvim_set_hl(0, "SLRight", { bg = right_bg, fg = right_fg })
 
-    -- сбрасываем кэш, потому что тема изменилась
     last_mode_sep_colors = nil
 end
-
 -- -----------------------------------------------------------------------------
 -- Рендеринг
 -- -----------------------------------------------------------------------------
@@ -114,6 +113,13 @@ function M.render()
         end
     end
 
+    local is_modified = false
+    if state.is_changed then
+        is_modified = true
+    end
+
+    local mod_flag = is_modified and "%#Awards53ChangedIndicatorKarta#[+]%#SLInfo# " or " "
+ 
     local file_name = ""
     local buf = state.get_source_buffer()
 
@@ -125,14 +131,9 @@ function M.render()
             file_name = "[No Name]"
         end
     end
-
+   
     if file_name == "" then
         file_name = "[No Name]"
-    end
-
-    local is_modified = false
-    if state.is_changed then
-        is_modified = true
     end
 
     if buf and vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].modified then
@@ -144,20 +145,17 @@ function M.render()
         is_modified = true
     end
 
-    local mod_flag = is_modified and "%#Awards53ChangedIndicatorKarta# [+]%#SLInfo# " or " "
     local bookmark_flag = state.has_bookmark() and " 🔖" or ""
 
     local card_info = string.format(
-        "Картка: %d/%d%s%s",
+        "Картка: %d/%d  %s%s",
         state.index(),
         state.count(),
         mod_flag,
         bookmark_flag
     )
 
-    local operations =
-        "h◄ l► [[◀◀ ]]▶▶ #g m/[m]🔖 │ " ..
-        "S O⇄ A dp✥ dd✗ y⎘ p󰆑 :w🖪 | u c-r U󰓦 | ? | :q⏻"
+    local operations = " ? | :q⏻"
 
     return table.concat({
         "%#" .. mode_hl .. "# ",
@@ -178,9 +176,9 @@ function M.render()
 
         "%=",
 
-        "%#SLInfoSep#",
+        "%#SLFileSep#",
 
-        "%#SLRight# ",
+        "%#SLFile# ",
         operations,
         " ",
     })
