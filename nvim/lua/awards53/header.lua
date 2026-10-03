@@ -3,8 +3,8 @@ local M = {}
 local state = require("awards53.state")
 
 function M.render()
-    local right = string.format(" ЗАПИС %d із %d ", state.index(), state.count())
-    local left = " (c)2026, Холодов О.В. [github.com/suozg]"
+    local left = string.format(" ЗАПИС %d (із %d) ", state.index(), state.count())
+    local right = " 2026, Холодов О.В. [github.com/suozg] "
     
     local width = vim.api.nvim_win_get_width(0)
     local left_len = vim.fn.strdisplaywidth(left)
