@@ -1,17 +1,17 @@
 -- search.lua
+--
+-- функції пошуку даних в файлах та базах даних
 local M = {}
 local utils = require("awards53.utils")
 local uv = vim.uv or vim.loop
 
--- ==================== КОНФИГУРАЦИЯ ====================
+-- ==================== КОНФІГУРАЦІЯ ====================
 
 local SEARCHDOCS_PATH = vim.fn.stdpath("config") .. "/bin/search.sh"
 local SEARCH_DIR = vim.fn.expand("~/STATYSTYKA/shtat/")
 
 local SEARCHSQL_PATH = vim.fn.stdpath("config") .. "/bin/sql_search.sh"
 local DB_PATH = vim.fn.expand("~/awards/awards_v4e.db")
-
-M.lock_processed = false
 
 local cached_passwords = {
     gpg = nil,
@@ -59,53 +59,310 @@ local function extract_default_rnokpp()
     return match or ""
 end
 
--- ==================== ВЗАЄМОДІЯ З .LOCK ФАЙЛОМ ====================
-
-local function get_lock_file_path()
+-- Отримання актуального абсолютного шляху до файлу в поточному буфері
+local function get_current_filepath()
     local state = require("awards53.state")
     local src_buf = state.get_source_buffer() or vim.api.nvim_get_current_buf()
-    local src_path = vim.api.nvim_buf_get_name(src_buf)
-    if src_path == "" then return nil end
-    return src_path .. ".awards53.lock"
+    local name = vim.api.nvim_buf_get_name(src_buf)
+    if name and name ~= "" then
+        return vim.fn.fnamemodify(name, ":p")
+    end
+    return nil
 end
 
-local function load_lock_data(lock_file)
-    if not lock_file or vim.fn.filereadable(lock_file) == 0 then
-        return {}
+
+-- ==================== ВЗАЄМОДІЯ З ГЛОБАЛЬНИМ КЕШЕМ (JSON) ====================
+
+local function get_cache_file_path()
+    return vim.fn.stdpath("state") .. "/awards53/bookmarks.json"
+end
+
+-- ---------------------------------------------------------------------------
+-- Пошук записів, які більше не мають відповідних файлів.
+-- Функція ТІЛЬКИ шукає, нічого не видаляє і нічого не повідомляє.
+-- ---------------------------------------------------------------------------
+
+local function find_missing_entries(root)
+    if type(root) ~= "table" then
+        return {}, {}
     end
-    
-    local lines = vim.fn.readfile(lock_file)
+
+    root.bookmarks = root.bookmarks or {}
+    root.rnokpp_cache = root.rnokpp_cache or {}
+
+    local missing_bookmarks = {}
+    local missing_cache = {}
+
+    -- Перевірка закладок
+    for filepath, _ in pairs(root.bookmarks) do
+        if vim.fn.filereadable(filepath) == 0 then
+            table.insert(missing_bookmarks, filepath)
+        end
+    end
+
+    -- Перевірка кешу РНОКПП
+    for filepath, _ in pairs(root.rnokpp_cache) do
+        if vim.fn.filereadable(filepath) == 0 then
+            table.insert(missing_cache, filepath)
+        end
+    end
+
+    return missing_bookmarks, missing_cache
+end
+
+-- ---------------------------------------------------------------------------
+-- Видалення знайдених записів.
+-- ---------------------------------------------------------------------------
+
+local function remove_missing_entries(root, missing_bookmarks, missing_cache)
+    root.bookmarks = root.bookmarks or {}
+    root.rnokpp_cache = root.rnokpp_cache or {}
+
+    for _, filepath in ipairs(missing_bookmarks) do
+        root.bookmarks[filepath] = nil
+    end
+
+    for _, filepath in ipairs(missing_cache) do
+        root.rnokpp_cache[filepath] = nil
+    end
+
+    return root
+end
+
+-- ---------------------------------------------------------------------------
+-- Формування повідомлення про кількість очищених записів.
+-- ---------------------------------------------------------------------------
+
+local function missing_entries_message(missing_bookmarks, missing_cache)
+    local removed_bm = #missing_bookmarks
+    local removed_cache = #missing_cache
+
+    return string.format(
+        "🧹 Очищено %d закладок та %d кешів РНОКПП (файли не знайдено)",
+        removed_bm,
+        removed_cache
+    )
+end
+
+-- ---------------------------------------------------------------------------
+-- Читання глобального JSON-кешу.
+--
+-- Якщо знайдені записи для неіснуючих файлів:
+--   1. показується повідомлення;
+--   2. користувач підтверджує очищення;
+--   3. тільки після підтвердження записи видаляються.
+--
+-- Якщо користувач відмовився — JSON залишається без змін.
+-- ---------------------------------------------------------------------------
+
+local function load_root_json()
+    local file_path = get_cache_file_path()
+
+    if vim.fn.filereadable(file_path) == 0 then
+        return {
+            bookmarks = {},
+            rnokpp_cache = {},
+        }
+    end
+
+    local lines = vim.fn.readfile(file_path)
+
     if not lines or #lines == 0 then
-        return {}
+        return {
+            bookmarks = {},
+            rnokpp_cache = {},
+        }
     end
-    
-    local content = table.concat(lines, "\n")
-    if vim.trim(content) == "" then 
-        return {} 
+
+    local ok, root = pcall(
+        vim.json.decode,
+        table.concat(lines, "\n")
+    )
+
+    if not ok or type(root) ~= "table" then
+        return {
+            bookmarks = {},
+            rnokpp_cache = {},
+        }
     end
-    
-    local ok, parsed = pcall(vim.json.decode, content)
-    if ok and type(parsed) == "table" then
-        return parsed
+
+    root.bookmarks = root.bookmarks or {}
+    root.rnokpp_cache = root.rnokpp_cache or {}
+
+    -- Спочатку тільки перевіряємо.
+    local missing_bookmarks, missing_cache =
+        find_missing_entries(root)
+
+    if #missing_bookmarks == 0 and #missing_cache == 0 then
+        return root
     end
-    
-    return {}
+
+    local removed_bm = #missing_bookmarks
+    local removed_cache = #missing_cache
+
+    local message = string.format(
+        "У JSON знайдено записи для відсутніх файлів.\n\n" ..
+        "Закладок: %d\n" ..
+        "Кешів РНОКПП: %d\n\n" ..
+        "Очистити ці записи?",
+        removed_bm,
+        removed_cache
+    )
+
+    local answer = vim.fn.confirm(
+        message,
+        "&Yes\n&No",
+        1
+    )
+
+    if answer == 1 then
+        root = remove_missing_entries(
+            root,
+            missing_bookmarks,
+            missing_cache
+        )
+
+        -- Зберігаємо вже очищений root.
+        -- save_root_json() повторно перевіряти його не буде.
+        local json_str = vim.json.encode(root)
+        local tmp = file_path .. ".tmp"
+
+        vim.fn.mkdir(
+            vim.fn.fnamemodify(file_path, ":h"),
+            "p"
+        )
+
+        local write_ok = pcall(
+            vim.fn.writefile,
+            vim.split(json_str, "\n"),
+            tmp
+        )
+
+        if write_ok then
+            pcall(uv.fs_unlink, file_path)
+            pcall(uv.fs_rename, tmp, file_path)
+        end
+
+        utils.info(string.format(
+            "🧹 Очищено %d закладок та %d кешів РНОКПП",
+            removed_bm,
+            removed_cache
+        ))
+    end
+
+    return root
 end
 
-local function save_pair_to_lock(lock_file, rnokpp, fio)
-    if not lock_file then return false end
-    local data = load_lock_data(lock_file)
-    data[rnokpp] = fio
-    local json_str = vim.json.encode(data)
-    vim.fn.writefile(vim.split(json_str, "\n"), lock_file)
-    return true
+-- ---------------------------------------------------------------------------
+-- Запис глобального JSON-кешу.
+--
+-- При записі очищення виконується АВТОМАТИЧНО.
+-- Підтвердження не запитується.
+-- Після запису повідомляється тільки про фактично видалені записи.
+-- ---------------------------------------------------------------------------
+
+local function save_root_json(root)
+    if type(root) ~= "table" then
+        return
+    end
+
+    root.bookmarks = root.bookmarks or {}
+    root.rnokpp_cache = root.rnokpp_cache or {}
+
+    -- При записі перевіряємо кеш без підтвердження.
+    local missing_bookmarks, missing_cache =
+        find_missing_entries(root)
+
+    local removed_bm = #missing_bookmarks
+    local removed_cache = #missing_cache
+
+    if removed_bm > 0 or removed_cache > 0 then
+        root = remove_missing_entries(
+            root,
+            missing_bookmarks,
+            missing_cache
+        )
+    end
+
+    local file_path = get_cache_file_path()
+    local dir = vim.fn.fnamemodify(file_path, ":h")
+
+    vim.fn.mkdir(dir, "p")
+
+    local json_str = vim.json.encode(root)
+    local tmp = file_path .. ".tmp"
+
+    local ok = pcall(
+        vim.fn.writefile,
+        vim.split(json_str, "\n"),
+        tmp
+    )
+
+    if ok then
+        pcall(uv.fs_unlink, file_path)
+        pcall(uv.fs_rename, tmp, file_path)
+    else
+        return
+    end
+
+    -- При записі тільки повідомляємо про автоматичне очищення.
+    if removed_bm > 0 or removed_cache > 0 then
+        utils.info(string.format(
+            "🧹 Під час запису очищено %d закладок та %d кешів РНОКПП (файли не знайдено)",
+            removed_bm,
+            removed_cache
+        ))
+    end
 end
+
+-- ---------------------------------------------------------------------------
+-- Отримання кешу РНОКПП для конкретного файлу.
+-- ---------------------------------------------------------------------------
+
+local function load_rnokpp_cache_for_file(filepath)
+    if not filepath then
+        return {}
+    end
+
+    local root = load_root_json()
+
+    return root.rnokpp_cache[filepath] or {}
+end
+
+-- ---------------------------------------------------------------------------
+-- Збереження пари РНОКПП → ПІБ у кеш.
+-- ---------------------------------------------------------------------------
+
+local function save_pair_to_cache(filepath, rnokpp, fio)
+    if not filepath then
+        return
+    end
+
+    local root = load_root_json()
+
+    root.rnokpp_cache = root.rnokpp_cache or {}
+    root.rnokpp_cache[filepath] =
+        root.rnokpp_cache[filepath] or {}
+
+    root.rnokpp_cache[filepath][rnokpp] = fio
+
+    save_root_json(root)
+end
+
+-- ---------------------------------------------------------------------------
+-- Отримання ПІБ за РНОКПП з кешу поточного файлу.
+-- ---------------------------------------------------------------------------
 
 function M.get_fio_from_lock(rnokpp)
-    local lock_file = get_lock_file_path()
-    if not lock_file then return nil end
-    local data = load_lock_data(lock_file)
-    return data[rnokpp]
+    local filepath = get_current_filepath()
+
+    if not filepath then
+        return nil
+    end
+
+    local cache = load_rnokpp_cache_for_file(filepath)
+
+    return cache[rnokpp]
 end
 
 -- ==================== ПАРСИНГ CSV ТА РЕЗУЛЬТАТІВ ====================
@@ -326,7 +583,7 @@ function M.run_search()
 
                         local result = obj.stdout
                         if not result or vim.trim(result) == "" then
-                            vim.notify("⚠️ Пошук завершено: нічого не знайдено", vim.log.levels.WARN, { title = "Awards53" })
+                            vim.notify("⚠️️ Пошук завершено: нічого не знайдено", vim.log.levels.WARN, { title = "Awards53" })
                             return
                         end
 
@@ -427,25 +684,20 @@ function M.run_sql_search()
     end)
 end
 
--- ==================== 3. ПОШУК УСІХ РНОКПП В ORG ТА ЗАПИС У .LOCK ====================
+-- ==================== 3. ПОШУК УСІХ РНОКПП В ORG ТА ЗАПИС У КЕШ ====================
 
 function M.process_org_rnokpp_to_lock()
-    local state = require("awards53.state")
-    local src_buf = state.get_source_buffer() or vim.api.nvim_get_current_buf()
-    local src_path = vim.api.nvim_buf_get_name(src_buf)
-
-    if not src_path or src_path == "" then
-        utils.warn("❌ Помилка: Поточний буфер не збережено на диск (немає шляху до файла).")
+    local filepath = get_current_filepath()
+    if not filepath then
+        utils.warn("⚠️ Не вдалося визначити шлях до файла поточної сесії.")
         return
     end
 
-    local lock_file = src_path .. ".awards53.lock"
+    local state = require("awards53.state")
+    local src_buf = state.get_source_buffer() or vim.api.nvim_get_current_buf()
 
     local lines = vim.api.nvim_buf_get_lines(src_buf, 0, -1, false)
-    local existing_lock = load_lock_data(lock_file)
-    if type(existing_lock) ~= "table" then
-        existing_lock = {}
-    end
+    local cache = load_rnokpp_cache_for_file(filepath)
 
     local rnokpp_list = {}
     local seen = {}
@@ -454,7 +706,7 @@ function M.process_org_rnokpp_to_lock()
     for _, line in ipairs(lines) do
         for rnokpp in line:gmatch("(%d%d%d%d%d%d%d%d%d%d)") do
             total_found_in_text = total_found_in_text + 1
-            if not seen[rnokpp] and not existing_lock[rnokpp] then
+            if not seen[rnokpp] and not cache[rnokpp] then
                 seen[rnokpp] = true
                 table.insert(rnokpp_list, rnokpp)
             end
@@ -469,8 +721,7 @@ function M.process_org_rnokpp_to_lock()
 
     if #rnokpp_list == 0 then
         if total_found_in_text > 0 then
-            M.lock_processed = true
-            utils.info("ℹ️ Усі знайдені РНОКПП вже присутні у .lock файлі. Підказки активовано.")
+            utils.info("ℹ️ Усі знайдені РНОКПП вже присутні у кеші для цього файла. Підказки активовано.")
             pcall(M.show_fio_near_rnokpp)
         else
             utils.warn("⚠️ У поточному буфері не знайдено жодного 10-значного РНОКПП.")
@@ -484,8 +735,7 @@ function M.process_org_rnokpp_to_lock()
 
         local function process_next(index)
             if index > total then
-                M.lock_processed = true
-                utils.info(string.format("🎉 Завершено! Опрацьовано %d РНОКПП. Додано у .lock: %d", total, found_count))
+                utils.info(string.format("🎉 Завершено! Опрацьовано %d РНОКПП. Додано у кеш: %d", total, found_count))
                 pcall(M.show_fio_near_rnokpp)
                 return
             end
@@ -501,9 +751,9 @@ function M.process_org_rnokpp_to_lock()
                                 line = vim.trim(line)
                                 local fio = extract_fio_from_line(line)
                                 if fio then
-                                    save_pair_to_lock(lock_file, cur_rnokpp, fio)
+                                    save_pair_to_cache(filepath, cur_rnokpp, fio)
                                     found_count = found_count + 1
-                                    break -- Знайшли ПІБ для cur_rnokpp, йдемо до наступного РНОКПП
+                                    break -- Знайшли ПІБ для cur_rnokpp
                                 end
                             end
                         end
@@ -524,7 +774,7 @@ function M.process_org_rnokpp_to_lock()
     else
         local layout = get_keyboard_layout_indicator()
         local password = vim.fn.inputsecret(string.format("🔑 [%s] Введіть GPG пароль:", layout))
-        
+
         vim.cmd("echo ''")
         vim.cmd("redraw")
 
@@ -537,25 +787,19 @@ function M.process_org_rnokpp_to_lock()
     end
 end
 
--- ==================== 4. ВСТАВКА/ВІДОБРАЖЕННЯ ПІБ З .LOCK ====================
+-- ==================== 4. ВСТАВКА/ВІДОБРАЖЕННЯ ПІБ З КЕШУ ====================
 
 local fio_ns = vim.api.nvim_create_namespace("awards53_fio_hint")
 
 function M.show_fio_near_rnokpp()
-    if not M.lock_processed then return end
+    local filepath = get_current_filepath()
+    if not filepath then return end
 
     local state = require("awards53.state")
     local ui = require("awards53.ui")
-    
-    local src_buf = state.get_source_buffer() or vim.api.nvim_get_current_buf()
-    local src_path = vim.api.nvim_buf_get_name(src_buf)
-    
-    if not src_path or src_path == "" then return end
 
-    local lock_file = src_path .. ".awards53.lock"
-    local lock_data = load_lock_data(lock_file)
-
-    if not lock_data or vim.tbl_isempty(lock_data) then return end
+    local cache_data = load_rnokpp_cache_for_file(filepath)
+    if not cache_data or vim.tbl_isempty(cache_data) then return end
 
     local cur_buf = vim.api.nvim_get_current_buf()
 
@@ -563,7 +807,7 @@ function M.show_fio_near_rnokpp()
     if ui.body_buf and cur_buf == ui.body_buf then
         local current_card_idx = ui.current_card or state.index() or 1
         local data = state.data()
-        
+
         if not data or not data.records or not data.records[current_card_idx] then return end
 
         local card = data.records[current_card_idx]
@@ -584,7 +828,7 @@ function M.show_fio_near_rnokpp()
 
         if not rnokpp then return end
 
-        local fio = lock_data[rnokpp]
+        local fio = cache_data[rnokpp]
         if not fio then return end
 
         local line_count = vim.api.nvim_buf_line_count(cur_buf)
@@ -620,7 +864,7 @@ function M.show_fio_near_rnokpp()
 
     if not rnokpp then return end
 
-    local fio = lock_data[rnokpp]
+    local fio = cache_data[rnokpp]
     if not fio then return end
 
     vim.api.nvim_buf_clear_namespace(cur_buf, fio_ns, 0, -1)
@@ -630,7 +874,7 @@ function M.show_fio_near_rnokpp()
     })
 end
 
--- Алиас для удобного вызова из `ui.redraw()`
+-- Алиас для виклику з `ui.redraw()`
 M.render_fio_hint = M.show_fio_near_rnokpp
 
 return M

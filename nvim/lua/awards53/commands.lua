@@ -222,18 +222,14 @@ function M.setup()
             require("awards53.search").run_search()
         end,
 
-        -- Пакетний пошук усіх РНОКПП з org-файлу та збереження в .lock
+        -- Пакетний пошук усіх РНОКПП з org-файлу та збереження в bookmarks.json
         Awards53LockProcess = function()
             require("awards53.search").process_org_rnokpp_to_lock()
         end,
 
-        -- Відображення ПІБ з .lock файлу поруч із РНОКПП (тільки якщо пакетна обробка виконана)
+        -- Відображення ПІБ з файлу поруч із РНОКПП
         Awards53ShowFio = function()
             local search = require("awards53.search")
-            if not search.lock_processed then
-                utils.warn("⚠️ Спочатку запустіть обробку .lock файлу (Awards53LockProcess)!")
-                return
-            end
             search.show_fio_near_rnokpp()
         end,
     }
@@ -248,14 +244,11 @@ function M.setup()
     
     vim.keymap.set("n", "<leader>sb", search.run_sql_search, { desc = "Awards53: Пошук в SQL DB" })
     vim.keymap.set("n", "<leader>sf", search.run_search, { desc = "Awards53: Пошук у файлах shtat" })
-    vim.keymap.set("n", "<leader>sl", search.process_org_rnokpp_to_lock, { desc = "Awards53: Пакетний пошук РНОКПП в .lock" })
+    vim.keymap.set("n", "<leader>sl", search.process_org_rnokpp_to_lock, { 
+        desc = "Awards53: Пакетний пошук РНОКПП в .lock" })
     vim.keymap.set("n", "<leader>si", function()
-        if not search.lock_processed then
-            utils.warn("⚠️ Спочатку запустіть обробку .lock файлу (<leader>sl)!")
-            return
-        end
         search.show_fio_near_rnokpp()
-    end, { desc = "Awards53: Показати ПІБ з .lock" })
+    end, { desc = "Awards53: Показати ПІБ з РНОКПП" })
 end
 
 return M

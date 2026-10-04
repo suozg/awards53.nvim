@@ -38,7 +38,6 @@ end
 -- ==========================================
 -- Закладки (Робота з файлом)
 -- ==========================================
-
 local function load_bookmarks()
     M.bookmarks = {}
 
@@ -54,7 +53,9 @@ local function load_bookmarks()
     local ok, data = pcall(vim.json.decode, table.concat(lines, "\n"))
     if not ok or type(data) ~= "table" then return end
 
-    local saved = data[path]
+    -- Підтримка нової та старої структури (для зворотної сумісності)
+    local all_bookmarks = data.bookmarks or data
+    local saved = all_bookmarks[path]
     if type(saved) ~= "table" then return end
 
     for _, idx in ipairs(saved) do
@@ -75,13 +76,19 @@ local function save_bookmarks()
     local dir = vim.fn.fnamemodify(bookmarks_file, ":h")
     vim.fn.mkdir(dir, "p")
 
-    local data = {}
+    local root_data = { bookmarks = {}, rnokpp_cache = {} }
+
     if vim.fn.filereadable(bookmarks_file) == 1 then
         local lines = vim.fn.readfile(bookmarks_file)
         if #lines > 0 then
             local ok, decoded = pcall(vim.json.decode, table.concat(lines, "\n"))
             if ok and type(decoded) == "table" then
-                data = decoded
+                -- Якщо зберігали за старим форматом — мігруємо
+                if decoded.bookmarks or decoded.rnokpp_cache then
+                    root_data = decoded
+                else
+                    root_data.bookmarks = decoded
+                end
             end
         end
     end
@@ -95,9 +102,10 @@ local function save_bookmarks()
     end
 
     table.sort(saved)
-    data[path] = #saved > 0 and saved or nil
+    root_data.bookmarks = root_data.bookmarks or {}
+    root_data.bookmarks[path] = #saved > 0 and saved or nil
 
-    local json = vim.json.encode(data)
+    local json = vim.json.encode(root_data)
     local tmp = bookmarks_file .. ".tmp"
 
     local ok = pcall(vim.fn.writefile, vim.split(json, "\n"), tmp)
