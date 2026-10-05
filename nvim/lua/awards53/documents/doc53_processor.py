@@ -10,6 +10,7 @@ uno_paths = [
     "/usr/lib64/python3/site-packages",
     "/usr/lib/libreoffice/program",
 ]
+
 for p in uno_paths:
     if os.path.exists(p) and p not in sys.path:
         sys.path.append(p)
@@ -71,27 +72,23 @@ def get_desktop_via_pipe():
     process.terminate()
     raise RuntimeError("Не вдалося запустити LibreOffice через Pipe")
 
-
 def insert_formatted_text(text_obj, cursor, text):
     raw_str = str(text)
+
     # Превращаем экранированные строки из JSON обратно в спецсимволы
     raw_str = raw_str.replace("\\t", "\t").replace("\\n", "\n")
 
-    # В UNO API PARAGRAPH_BREAK имеет значение 0
     PARAGRAPH = 0
 
     lines = raw_str.split("\n")
 
     for row_idx, line in enumerate(lines):
-        # insertString автоматически вставляет и корректно обрабатывает символ \t
         text_obj.insertString(cursor, line, False)
 
-        # Вставляем абзац для всех строк, кроме последней
         if row_idx < len(lines) - 1:
             text_obj.insertControlCharacter(
                 cursor, PARAGRAPH, False
             )
-
 
 def process_single_document(
     desktop, tpl_path, output_path, fields, table_data=None

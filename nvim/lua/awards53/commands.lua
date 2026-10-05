@@ -204,7 +204,7 @@ function M.save_cards()
 end
 
 function M.setup()
-    -- 1. Реєстрація команд Neovim (:Awards53, :Awards53Search, :Awards53LockProcess і т.д.)
+    -- 1. Реєстрація команд Neovim (:Awards53, :Awards53Search, :Awards53SearchProcess і т.д.)
     local commands = {
         Awards53 = open_cards,
 
@@ -223,7 +223,7 @@ function M.setup()
         end,
 
         -- Пакетний пошук усіх РНОКПП з org-файлу та збереження в bookmarks.json
-        Awards53LockProcess = function()
+        Awards53SearchProcess = function()
             require("awards53.search").process_org_rnokpp_to_lock()
         end,
 
@@ -245,7 +245,7 @@ function M.setup()
     vim.keymap.set("n", "<leader>sb", search.run_sql_search, { desc = "Awards53: Пошук в SQL DB" })
     vim.keymap.set("n", "<leader>sf", search.run_search, { desc = "Awards53: Пошук у файлах shtat" })
     vim.keymap.set("n", "<leader>sl", search.process_org_rnokpp_to_lock, { 
-        desc = "Awards53: Пакетний пошук РНОКПП в .lock" })
+        desc = "Awards53: Пакетний пошук РНОКПП" })
     vim.keymap.set("n", "<leader>si", function()
         search.show_fio_near_rnokpp()
     end, { desc = "Awards53: Показати ПІБ з РНОКПП" })

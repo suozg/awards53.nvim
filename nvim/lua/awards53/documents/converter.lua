@@ -1,3 +1,5 @@
+-- cinverter.lua
+-- створює документи на печать за допомогою шаблонів
 local M = {}
 local context = require("awards53.documents.context")
 local rnokpp_util = require("awards53.rnokpp")
@@ -180,7 +182,7 @@ function M.compile_to_odt(opts)
                 if not val then break end
 
                 if type(val) == "table" then 
-                    val = table.concat(val, " ") 
+                    val = table.concat(val, "\n") 
                 end
 
                 table.insert(row, tostring(val))
