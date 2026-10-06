@@ -45,6 +45,26 @@ local function mode_info()
     end
 end
 
+
+-- -----------------------------------------------------------------------------
+-- Функція підрахунку символів у картці
+-- -----------------------------------------------------------------------------
+local function get_card_char_count()
+    local ui = require("awards53.ui")
+    if not (ui.body_buf and vim.api.nvim_buf_is_valid(ui.body_buf)) then
+        return 0
+    end
+
+    local lines = vim.api.nvim_buf_get_lines(ui.body_buf, 0, -1, false)
+    local total_chars = 0
+
+    for _, line in ipairs(lines) do
+        total_chars = total_chars + vim.fn.strchars(line)
+    end
+
+    return total_chars
+end
+
 -- -----------------------------------------------------------------------------
 -- Кольори
 -- -----------------------------------------------------------------------------
@@ -94,10 +114,12 @@ end
 -- -----------------------------------------------------------------------------
 function M.render()
     local mode_name, mode_hl = mode_info()
+    local char_count = get_card_char_count()
+    local chars_section = string.format(" 󰄄 %d ", char_count)
 
     -- Нельзя переопределять hl на каждый render, если цвета не поменялись.
     local mode_hl_info = vim.api.nvim_get_hl(0, { name = mode_hl, link = false })
-    local file_hl_info = vim.api.nvim_get_hl(0, { name = "SLFile", link = false })
+local file_hl_info = vim.api.nvim_get_hl(0, { name = "SLFile", link = false })
 
     if mode_hl_info and mode_hl_info.bg and file_hl_info and file_hl_info.bg then
         local new_mode_bg = string.format("#%06x", mode_hl_info.bg)
@@ -148,9 +170,10 @@ function M.render()
     local bookmark_flag = state.has_bookmark() and " 🔖" or ""
 
     local card_info = string.format(
-        "Картка: %d/%d  %s%s",
+        "Картка: %d/%d  %s %s%s",
         state.index(),
         state.count(),
+        chars_section,
         mod_flag,
         bookmark_flag
     )

@@ -241,7 +241,7 @@ function M.redraw()
 
     -- Малюємо підказку ПІБ (спрацює ТІЛЬКИ якщо lock_processed == true)
     pcall(function()
-        search_module.render_fio_hint()
+        search_module.show_fio_near_rnokpp()
     end)
 
 end

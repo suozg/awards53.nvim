@@ -333,8 +333,8 @@ end
 -- Збереження пари РНОКПП → ПІБ у кеш.
 -- ---------------------------------------------------------------------------
 
-local function save_pair_to_cache(filepath, rnokpp, fio)
-    if not filepath then
+local function save_pairs_to_cache(filepath, found_pairs)
+    if not filepath or type(found_pairs) ~= "table" or vim.tbl_isempty(found_pairs) then
         return
     end
 
@@ -344,7 +344,9 @@ local function save_pair_to_cache(filepath, rnokpp, fio)
     root.rnokpp_cache[filepath] =
         root.rnokpp_cache[filepath] or {}
 
-    root.rnokpp_cache[filepath][rnokpp] = fio
+    for rnokpp, fio in pairs(found_pairs) do
+        root.rnokpp_cache[filepath][rnokpp] = fio
+    end
 
     save_root_json(root)
 end
@@ -396,15 +398,16 @@ local function parse_csv_line(line)
 end
 
 local function extract_fio_from_line(line)
+    line = line:gsub("^%b[]%s*", "", 1)
+
     local fields = parse_csv_line(line)
-    local fio_idx = 2
 
-    if #fields < fio_idx then return nil end
+    local fio = vim.trim(fields[2] or "")
 
-    local fio = vim.trim(fields[fio_idx] or "")
     if fio ~= "" then
         return fio
     end
+
     return nil
 end
 
@@ -730,50 +733,104 @@ function M.process_org_rnokpp_to_lock()
     end
 
     local function execute_batch(password)
-        local total = #rnokpp_list
-        local found_count = 0
+        vim.notify(
+            string.format(
+                "🔍 Пошук %d РНОКПП ...",
+                #rnokpp_list
+            ),
+            vim.log.levels.INFO,
+            { title = "Awards53" }
+        )
 
-        local function process_next(index)
-            if index > total then
-                utils.info(string.format("🎉 Завершено! Опрацьовано %d РНОКПП. Додано у кеш: %d", total, found_count))
-                pcall(M.show_fio_near_rnokpp)
-                return
-            end
+        local search_terms = table.concat(rnokpp_list, "|")
 
-            local cur_rnokpp = rnokpp_list[index]
-            vim.system(
-                { SEARCHDOCS_PATH, cur_rnokpp, SEARCH_DIR },
-                { stdin = password .. "\n" },
-                function(obj)
-                    vim.schedule(function()
-                        if obj.code == 0 and obj.stdout then
-                            for _, line in ipairs(vim.split(obj.stdout, "\n", { trimempty = true })) do
-                                line = vim.trim(line)
-                                local fio = extract_fio_from_line(line)
-                                if fio then
-                                    save_pair_to_cache(filepath, cur_rnokpp, fio)
-                                    found_count = found_count + 1
-                                    break -- Знайшли ПІБ для cur_rnokpp
+        vim.system(
+            {
+                SEARCHDOCS_PATH,
+                search_terms,
+                SEARCH_DIR,
+            },
+            {
+                stdin = password .. "\n",
+                text = true,
+            },
+            function(obj)
+                vim.schedule(function()
+                    if obj.code ~= 0 then
+                        cached_passwords.gpg = nil
+
+                        utils.warn(
+                            "❌ Пошук завершився з помилкою: " ..
+                            tostring(obj.code)
+                        )
+
+                        return
+                    end
+
+                    local result = obj.stdout or ""
+
+                    if vim.trim(result) == "" then
+                        utils.warn(
+                            "⚠️ За жодним РНОКПП запис не знайдено."
+                        )
+                        return
+                    end
+
+                    -- Тут збираємо всі знайдені пари,
+                    -- а JSON записуємо тільки один раз.
+                    local found = {}
+
+                    for _, line in ipairs(
+                        vim.split(result, "\n", { trimempty = true })
+                    ) do
+                        line = vim.trim(line)
+
+                        if line ~= "" then
+                            local fio = extract_fio_from_line(line)
+
+                            if fio then
+                                for _, rnokpp in ipairs(rnokpp_list) do
+                                    if not found[rnokpp]
+                                        and line:find(rnokpp, 1, true)
+                                    then
+                                        found[rnokpp] = fio
+                                    end
                                 end
                             end
                         end
-                        vim.notify(string.format("✓ [%d/%d] %s", index, total, cur_rnokpp), vim.log.levels.INFO, { title = "Awards53" })
-                        process_next(index + 1)
-                    end)
-                end
-            )
-        end
+                    end
 
-        vim.schedule(function()
-            process_next(1)
-        end)
+                    -- Один раз записуємо весь пакет у JSON.
+                    save_pairs_to_cache(filepath, found)
+
+                    local found_count = 0
+
+                    for _ in pairs(found) do
+                        found_count = found_count + 1
+                    end
+
+                    utils.info(
+                        string.format(
+                            "🎉 Опрацьовано %d РНОКПП. Додано у кеш: %d",
+                            #rnokpp_list,
+                            found_count
+                        )
+                    )
+
+                    vim.cmd("redraw")
+                    vim.defer_fn(function()
+                        pcall(M.show_fio_near_rnokpp)
+                    end, 50)
+                end)
+            end
+        )
     end
-
+    
     if cached_passwords.gpg then
         execute_batch(cached_passwords.gpg)
     else
         local layout = get_keyboard_layout_indicator()
-        local password = vim.fn.inputsecret(string.format("🔑 [%s] Введіть GPG пароль:", layout))
+        local password = vim.fn.inputsecret(string.format("🔑 [%s] Введіть пароль:", layout))
 
         vim.cmd("echo ''")
         vim.cmd("redraw")
@@ -793,88 +850,207 @@ local fio_ns = vim.api.nvim_create_namespace("awards53_fio_hint")
 
 function M.show_fio_near_rnokpp()
     local filepath = get_current_filepath()
-    if not filepath then return end
+    if not filepath then
+        return
+    end
 
     local state = require("awards53.state")
     local ui = require("awards53.ui")
 
     local cache_data = load_rnokpp_cache_for_file(filepath)
-    if not cache_data or vim.tbl_isempty(cache_data) then return end
+
+    if not cache_data or vim.tbl_isempty(cache_data) then
+        return
+    end
 
     local cur_buf = vim.api.nvim_get_current_buf()
 
-    -- Сценарій А: UI карток
+    -- ============================================================
+    -- Сценарій А: UI карток Awards53
+    -- ============================================================
+
     if ui.body_buf and cur_buf == ui.body_buf then
-        local current_card_idx = ui.current_card or state.index() or 1
+        local current_card_idx =
+            ui.current_card or state.index() or 1
+
         local data = state.data()
 
-        if not data or not data.records or not data.records[current_card_idx] then return end
+        if not data
+            or not data.records
+            or not data.records[current_card_idx]
+        then
+            return
+        end
 
         local card = data.records[current_card_idx]
+
         local rnokpp = nil
 
+        -- Шукаємо РНОКПП у поточній картці.
         for _, lines in pairs(card) do
             if type(lines) == "table" then
                 for _, line in ipairs(lines) do
-                    local match = line:match("(%d%d%d%d%d%d%d%d%d%d)")
-                    if match then
+                    local match =
+                        line:match("(%d%d%d%d%d%d%d%d%d%d)")
+
+                    if match and cache_data[match] then
                         rnokpp = match
                         break
                     end
                 end
+            elseif type(lines) == "string" then
+                local match =
+                    lines:match("(%d%d%d%d%d%d%d%d%d%d)")
+
+                if match and cache_data[match] then
+                    rnokpp = match
+                    break
+                end
             end
-            if rnokpp then break end
+
+            if rnokpp then
+                break
+            end
         end
 
-        if not rnokpp then return end
+        if not rnokpp then
+            return
+        end
 
         local fio = cache_data[rnokpp]
-        if not fio then return end
 
-        local line_count = vim.api.nvim_buf_line_count(cur_buf)
+        if not fio then
+            return
+        end
+
+        -- Шукаємо рядок картки, біля якого показати ПІБ.
+        local line_count =
+            vim.api.nvim_buf_line_count(cur_buf)
+
         local target_row = nil
 
         for i = 0, line_count - 1 do
-            local line_text = vim.api.nvim_buf_get_lines(cur_buf, i, i + 1, false)[1] or ""
-            if line_text:match("%d%d%.%d%d%.%d%d%d%d") or line_text:match("н%.р") or line_text:match("д%.н") then
+            local line_text =
+                vim.api.nvim_buf_get_lines(
+                    cur_buf,
+                    i,
+                    i + 1,
+                    false
+                )[1] or ""
+
+            if line_text:match(rnokpp) then
                 target_row = i
                 break
-            elseif line_text:match(rnokpp) then
-                target_row = i
             end
         end
 
+        -- Якщо сам РНОКПП у відображеній картці не знайдений,
+        -- використовуємо поточний рядок.
         if not target_row then
-            target_row = vim.api.nvim_win_get_cursor(0)[1] - 1
+            target_row =
+                vim.api.nvim_win_get_cursor(0)[1] - 1
         end
 
-        vim.api.nvim_buf_clear_namespace(cur_buf, fio_ns, 0, -1)
+        vim.api.nvim_buf_clear_namespace(
+            cur_buf,
+            fio_ns,
+            0,
+            -1
+        )
 
-        vim.api.nvim_buf_set_extmark(cur_buf, fio_ns, target_row, 0, {
-            virt_text = { { "  👤 " .. fio, "Comment" } },
-            virt_text_pos = "eol",
-        })
+        vim.api.nvim_buf_set_extmark(
+            cur_buf,
+            fio_ns,
+            target_row,
+            0,
+            {
+                virt_text = {
+                    { "  👤 " .. fio, "Comment" }
+                },
+                virt_text_pos = "eol",
+            }
+        )
+
         return
     end
 
-    -- Сценарій Б: Звичайний .org буфер
-    local line_idx = vim.api.nvim_win_get_cursor(0)[1] - 1
-    local line = vim.api.nvim_get_current_line()
-    local rnokpp = line:match("(%d%d%d%d%d%d%d%d%d%d)")
+    -- ============================================================
+    -- Сценарій Б: звичайний .org буфер
+    -- ============================================================
 
-    if not rnokpp then return end
+    local line_count =
+        vim.api.nvim_buf_line_count(cur_buf)
+
+    local cursor_row =
+        vim.api.nvim_win_get_cursor(0)[1] - 1
+
+    local rnokpp = nil
+    local target_row = nil
+
+    -- Спочатку шукаємо РНОКПП на поточному рядку.
+    local current_line =
+        vim.api.nvim_get_current_line()
+
+    local current_rnokpp =
+        current_line:match("(%d%d%d%d%d%d%d%d%d%d)")
+
+    if current_rnokpp and cache_data[current_rnokpp] then
+        rnokpp = current_rnokpp
+        target_row = cursor_row
+    end
+
+    -- Якщо на поточному рядку його немає,
+    -- шукаємо найближчий РНОКПП у всьому буфері.
+    if not rnokpp then
+        for i = 0, line_count - 1 do
+            local line_text =
+                vim.api.nvim_buf_get_lines(
+                    cur_buf,
+                    i,
+                    i + 1,
+                    false
+                )[1] or ""
+
+            local match =
+                line_text:match("(%d%d%d%d%d%d%d%d%d%d)")
+
+            if match and cache_data[match] then
+                rnokpp = match
+                target_row = i
+                break
+            end
+        end
+    end
+
+    if not rnokpp or not target_row then
+        return
+    end
 
     local fio = cache_data[rnokpp]
-    if not fio then return end
 
-    vim.api.nvim_buf_clear_namespace(cur_buf, fio_ns, 0, -1)
-    vim.api.nvim_buf_set_extmark(cur_buf, fio_ns, line_idx, 0, {
-        virt_text = { { "  👤 " .. fio, "Comment" } },
-        virt_text_pos = "eol",
-    })
+    if not fio then
+        return
+    end
+
+    vim.api.nvim_buf_clear_namespace(
+        cur_buf,
+        fio_ns,
+        0,
+        -1
+    )
+
+    vim.api.nvim_buf_set_extmark(
+        cur_buf,
+        fio_ns,
+        target_row,
+        0,
+        {
+            virt_text = {
+                { "  👤 " .. fio, "Comment" }
+            },
+            virt_text_pos = "eol",
+        }
+    )
 end
-
--- Алиас для виклику з `ui.redraw()`
-M.render_fio_hint = M.show_fio_near_rnokpp
 
 return M

@@ -242,13 +242,12 @@ function M.setup()
     -- 2. Прив'язка гарячих клавіш
     local search = require("awards53.search")
     
-    vim.keymap.set("n", "<leader>sb", search.run_sql_search, { desc = "Awards53: Пошук в SQL DB" })
-    vim.keymap.set("n", "<leader>sf", search.run_search, { desc = "Awards53: Пошук у файлах shtat" })
-    vim.keymap.set("n", "<leader>sl", search.process_org_rnokpp_to_lock, { 
-        desc = "Awards53: Пакетний пошук РНОКПП" })
-    vim.keymap.set("n", "<leader>si", function()
-        search.show_fio_near_rnokpp()
-    end, { desc = "Awards53: Показати ПІБ з РНОКПП" })
+    vim.keymap.set("n", "<leader>fa", search.process_org_rnokpp_to_lock, { 
+        desc = "Awards53: Пакетний пошук РНОКПП" 
+    })
+    vim.keymap.set("n", "<leader>fs", search.show_fio_near_rnokpp, { 
+        desc = "Awards53: Показати ПІБ з РНОКПП" 
+    })
 end
 
 return M

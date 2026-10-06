@@ -25,6 +25,50 @@ else
     SEARCH_CMD='grep -a -i -F'
 fi
 
+search_csv() {
+    local file="$1"
+    local term="$2"
+
+    python3 - "$file" "$term" <<'PY'
+import csv
+import sys
+
+filename = sys.argv[1]
+terms = sys.argv[2].split("|")
+terms = [t.casefold() for t in terms if t]
+
+with open(
+    filename,
+    "r",
+    encoding="utf-8-sig",
+    errors="replace",
+    newline=""
+) as f:
+    reader = csv.reader(f)
+
+    for row in reader:
+        if not any(
+            term in (field or "").casefold()
+            for field in row
+            for term in terms
+        ):
+            continue
+
+        fields = []
+
+        for field in row:
+            # Весь CSV-record повинен бути одним фізичним рядком.
+            field = " ".join(field.splitlines())
+
+            if "," in field or '"' in field:
+                field = '"' + field.replace('"', '""') + '"'
+
+            fields.append(field)
+
+        print(",".join(fields))
+PY
+}
+
 SEARCH_DIR_ABS=$(eval echo "$SEARCH_DIR")
 
 # ВИКЛЮЧАЄМО .swp та тимчасові файли на кшталт .* за допомогою ! -name ".*" та ! -name "*.swp"
@@ -66,19 +110,28 @@ for FILE in "${FILES[@]}"; do
     EXT="${TARGET_FILE##*.}"
 
     case "${EXT,,}" in
-        txt|csv|log)
+        csv)
+            MATCHES=$(search_csv "$TARGET_FILE" "$SEARCH_TERM")
+            ;;
+
+        txt|log)
             MATCHES=$($SEARCH_CMD "$SEARCH_TERM" "$TARGET_FILE" 2>/dev/null)
             ;;
+
         pdf)
             if command -v pdftotext >/dev/null 2>&1; then
-                MATCHES=$(pdftotext "$TARGET_FILE" - 2>/dev/null | $SEARCH_CMD "$SEARCH_TERM" 2>/dev/null)
+                MATCHES=$(pdftotext "$TARGET_FILE" 2>/dev/null |
+                    $SEARCH_CMD "$SEARCH_TERM" 2>/dev/null)
             fi
             ;;
+
         *)
             if command -v soffice >/dev/null 2>&1; then
                 soffice --headless --convert-to txt:"Text" \
                     "$TARGET_FILE" --outdir "$TEMP_DIR" >/dev/null 2>&1
+
                 CONV_FILE="$TEMP_DIR/$(basename "${TARGET_FILE%.*}.txt")"
+
                 if [ -f "$CONV_FILE" ]; then
                     MATCHES=$($SEARCH_CMD "$SEARCH_TERM" "$CONV_FILE" 2>/dev/null)
                     rm -f "$CONV_FILE"
