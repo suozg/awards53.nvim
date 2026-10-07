@@ -436,13 +436,18 @@ function M.render_status()
     local modified = is_dirty and "%#Awards53ChangedIndicator#[+]%#SLFile# " or " "
     local prev_hint = get_prev_field_preview(card_idx, field_idx)
 
+    -- Рахуємо символи через utils для поточного буфера редактора
+    local char_count = utils.get_buf_char_count(buf)
+    local chars_section = string.format("󰄄 %d", char_count)
+
     local editor_info = string.format(
-        "Картка %d/%d, поле '%s'%s  %s", 
+        "Картка %d/%d, поле '%s'%s %s %s", 
         card_idx, 
         state.count(), 
         field,
         prev_hint,
-        modified 
+        chars_section,
+        modified
     )
 
     -- 3. Подсказки

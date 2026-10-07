@@ -1,6 +1,7 @@
 local M = {}
 
 local state = require("awards53.state")
+local utils = require("awards53.utils") 
 
 -- Чтобы не перерисовывать statusline, если цвет разделителя не изменился
 local last_mode_sep_colors = nil
@@ -45,25 +46,6 @@ local function mode_info()
     end
 end
 
-
--- -----------------------------------------------------------------------------
--- Функція підрахунку символів у картці
--- -----------------------------------------------------------------------------
-local function get_card_char_count()
-    local ui = require("awards53.ui")
-    if not (ui.body_buf and vim.api.nvim_buf_is_valid(ui.body_buf)) then
-        return 0
-    end
-
-    local lines = vim.api.nvim_buf_get_lines(ui.body_buf, 0, -1, false)
-    local total_chars = 0
-
-    for _, line in ipairs(lines) do
-        total_chars = total_chars + vim.fn.strchars(line)
-    end
-
-    return total_chars
-end
 
 -- -----------------------------------------------------------------------------
 -- Кольори
@@ -113,14 +95,19 @@ end
 -- Рендеринг
 -- -----------------------------------------------------------------------------
 function M.render()
-    local mode_name, mode_hl = mode_info()
-    local char_count = get_card_char_count()
+    -- Підрахунок символів (вВикористовуємо буфер з ui.body_buf або поточний) 
+    local ui = require("awards53.ui")
+    local char_count = utils.get_buf_char_count(ui.body_buf)
     local chars_section = string.format(" 󰄄 %d ", char_count)
+
+    -- колльори
+    local mode_name, mode_hl = mode_info()
 
     -- Нельзя переопределять hl на каждый render, если цвета не поменялись.
     local mode_hl_info = vim.api.nvim_get_hl(0, { name = mode_hl, link = false })
-local file_hl_info = vim.api.nvim_get_hl(0, { name = "SLFile", link = false })
-
+    local file_hl_info = vim.api.nvim_get_hl(0, { name = "SLFile", link = false })
+    
+   
     if mode_hl_info and mode_hl_info.bg and file_hl_info and file_hl_info.bg then
         local new_mode_bg = string.format("#%06x", mode_hl_info.bg)
         local new_file_bg = string.format("#%06x", file_hl_info.bg)

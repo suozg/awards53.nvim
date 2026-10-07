@@ -135,4 +135,20 @@ function M.error(msg)
     vim.notify(msg, vim.log.levels.ERROR)
 end
 
+---Обчислює загальну кількість символів у вказаному буфері
+function M.get_buf_char_count(buf)
+    if not buf or not vim.api.nvim_buf_is_valid(buf) then
+        return 0
+    end
+
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local total_chars = 0
+
+    for _, line in ipairs(lines) do
+        total_chars = total_chars + vim.fn.strchars(line)
+    end
+
+    return total_chars
+end
+
 return M
