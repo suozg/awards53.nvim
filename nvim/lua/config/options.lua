@@ -57,21 +57,10 @@ opt.laststatus = 3  -- лише один рядок стану для всьог
 -- бекап
 opt.undofile = true
 opt.undodir = vim.fn.expand("~/.local/state/nvim/undo")
+opt.undolevels = 10000 -- Максимальна кількість змін для одного буфера
+opt.undoreload = 10000 -- Кількість рядків для збереження при повторному завантаженні
 opt.timeoutlen = 500
 opt.ttimeoutlen = 0
 opt.backup = false
 opt.writebackup = false
 opt.swapfile = false
--- Автоматичне очищення файлів undo, старіших за 90 днів
-vim.api.nvim_create_autocmd("VimEnter", {
-  group = vim.api.nvim_create_augroup("CleanUndoHistory", { clear = true }),
-  callback = function()
-    local undo_dir = vim.fn.expand("~/.local/state/nvim/undo")
-    if vim.fn.isdirectory(undo_dir) == 1 then
-      -- Команда виконується асинхронно, щоб не уповільнювати запуск Neovim
-      vim.fn.jobstart({
-        "find", undo_dir, "-type", "f", "-atime", "+30", "-delete"
-      })
-    end
-  end,
-})

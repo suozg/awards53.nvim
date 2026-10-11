@@ -34,6 +34,35 @@ vim.api.nvim_create_autocmd("BufWritePost", {
     end,
 })
 
+local clean_group = vim.api.nvim_create_augroup("CleanUndoHistory", { clear = true })
+
+-- 1. Видалення undo-файла при видаленні/переміщенні самого файла
+vim.api.nvim_create_autocmd({ "BufWritePost", "BufDelete", "BufUnload" }, {
+  group = clean_group,
+  callback = function(args)
+    local file = vim.api.nvim_buf_get_name(args.buf)
+    if file ~= "" and not vim.startswith(file, "term://") and vim.fn.filereadable(file) == 0 then
+      local undofile = vim.fn.undofile(file)
+      if undofile ~= "" and vim.fn.filereadable(undofile) == 1 then
+        os.remove(undofile)
+      end
+    end
+  end,
+})
+
+-- 2. Асинхронне очищення undo-файлів, які не змінювалися понад 30 днів
+vim.api.nvim_create_autocmd("VimEnter", {
+  group = clean_group,
+  callback = function()
+    local undo_dir = vim.fn.expand("~/.local/state/nvim/undo")
+    if vim.fn.isdirectory(undo_dir) == 1 then
+      vim.fn.jobstart({
+        "find", undo_dir, "-type", "f", "-mtime", "+30", "-delete"
+      })
+    end
+  end,
+})
+
 -- -----------------------------------------------------------------------------
 -- Управління розкладкою клавіатури (xkb-switch + dwmblocks)
 -- -----------------------------------------------------------------------------
