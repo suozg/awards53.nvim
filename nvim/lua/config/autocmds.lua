@@ -26,6 +26,20 @@ vim.api.nvim_create_autocmd("TextYankPost", {
     end,
 })
 
+local langmap = vim.o.langmap
+
+vim.api.nvim_create_autocmd("CmdlineEnter", {
+    callback = function()
+        vim.o.langmap = ""
+    end,
+})
+
+vim.api.nvim_create_autocmd("CmdlineLeave", {
+    callback = function()
+        vim.o.langmap = langmap
+    end,
+})
+
 vim.api.nvim_create_autocmd("BufWritePost", {
     group = group,
     pattern = "*.org",

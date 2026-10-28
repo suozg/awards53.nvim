@@ -84,14 +84,13 @@ return {
 
                 sources = {
                     { name = "nvim_lsp" },
-
+                    { name = "luasnip" }, 
                     {
                         name = "buffer",
                         option = {
                             keyword_pattern = [[[^%s]\+]],
                         },
                     },
-
                     { name = "path" },
                 },
 

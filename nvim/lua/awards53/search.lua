@@ -399,13 +399,20 @@ end
 
 local function extract_fio_from_line(line)
     line = line:gsub("^%b[]%s*", "", 1)
-
     local fields = parse_csv_line(line)
 
-    local fio = vim.trim(fields[2] or "")
+    -- Ищем ПІБ среди всех полей CSV (формат - ПРІЗВИЩЕ Ім'я Побатькові).
+    for _, field in ipairs(fields) do
+        local value = vim.trim(field)
+        local surname, name, patronymic =
+            value:match("^([А-ЯІЇЄҐA-Z'’%-]+)%s+([^%s]+)%s+([^%s]+)$")
 
-    if fio ~= "" then
-        return fio
+        if surname and name and patronymic
+            and surname == surname:upper()
+            and name:match("^[А-ЯІЇЄҐ]")
+            and patronymic:match("^[А-ЯІЇЄҐ]") then
+            return value
+        end
     end
 
     return nil

@@ -441,15 +441,14 @@ function M.render_status()
     local chars_section = string.format("󰄄 %d", char_count)
 
     local editor_info = string.format(
-        "Картка %d/%d, поле '%s'%s %s %s", 
+        "Картка %d/%d, поле '%s'%s %s ", 
         card_idx, 
         state.count(), 
         field,
         prev_hint,
-        chars_section,
-        modified
+        chars_section
     )
-
+    
     -- 3. Подсказки
     local operations = ":w/:q/Esc🖪  | ? | :q!⏻"
 
@@ -463,15 +462,16 @@ function M.render_status()
 
         "%#SLFile# ",
         editor_info,
+        "%l/%L:%v %p%% ",
+        modified,
         " ",
-
         "%#SLFileSep#",
         
         "%=",
 
         "%#SLFileSep#",
-
         "%#SLFile# ",
+        " ",
         operations,
         " ",
     })

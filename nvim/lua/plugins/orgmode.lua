@@ -23,6 +23,13 @@ return {
           "CANCELLED",
         },
 
+        mappings = {
+          agenda = {
+            org_agenda_schedule = "S",
+            org_agenda_deadline = "D",
+          },
+        },
+        
         org_capture_templates = {
           t = {
             description = "Завдання",
