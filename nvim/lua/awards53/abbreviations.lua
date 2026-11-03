@@ -118,29 +118,57 @@ function M.select_and_insert()
     end)
 end
 
--- Реєстрація автокоманди для буфера (автозаміна під час введення тексту)
+-- Реєстрація автозамін для конкретного буфера
 function M.register_buffer_abbreviations(bufnr)
     bufnr = bufnr or vim.api.nvim_get_current_buf()
 
-    if #keys == 0 then
-        M.load_abbreviations()
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+        return
     end
+
+    M.load_abbreviations()
+
+    local group = vim.api.nvim_create_augroup(
+        "Awards53Abbreviations_" .. bufnr,
+        { clear = true }
+    )
 
     vim.api.nvim_create_autocmd("TextChangedI", {
         buffer = bufnr,
+        group = group,
         callback = function()
-            local row, col0 = unpack(vim.api.nvim_win_get_cursor(0))
-            local line = vim.api.nvim_get_current_line()
-            local before = line:sub(1, col0)
+            if not vim.api.nvim_buf_is_valid(bufnr) then
+                return
+            end
+
+            local win = vim.fn.bufwinid(bufnr)
+            if win == -1 or not vim.api.nvim_win_is_valid(win) then
+                return
+            end
+
+            local row, col = unpack(vim.api.nvim_win_get_cursor(win))
+            local line = vim.api.nvim_buf_get_lines(
+                bufnr, row - 1, row, false
+            )[1] or ""
+
+            local before = line:sub(1, col)
 
             for _, key in ipairs(keys) do
-                if before:sub(-#key) == key then
+                if #key > 0 and before:sub(-#key) == key then
                     local value = dictionary[key]
-                    local start_col = col0 - #key
-                    local end_col = col0
+                    local start_col = col - #key
 
-                    vim.api.nvim_buf_set_text(bufnr, row-1, start_col, row-1, end_col, { value })
-                    vim.api.nvim_win_set_cursor(0, { row, start_col + #value })
+                    vim.api.nvim_buf_set_text(
+                        bufnr,
+                        row - 1, start_col,
+                        row - 1, col,
+                        { value }
+                    )
+
+                    vim.api.nvim_win_set_cursor(
+                        win,
+                        { row, start_col + #value }
+                    )
 
                     return
                 end
@@ -283,6 +311,17 @@ function M.manage_abbreviations()
             }, function() end)
         end
     end)
+end
+
+function M.unregister_buffer_abbreviations(bufnr)
+    if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+        return
+    end
+
+    pcall(
+        vim.api.nvim_del_augroup_by_name,
+        "Awards53Abbreviations_" .. bufnr
+    )
 end
 
 return M

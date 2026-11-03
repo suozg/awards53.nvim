@@ -457,6 +457,109 @@ function M.open_undotree_window()
     vim.keymap.set("n", "<Esc>", close_windows, { buffer = list_buf, silent = true })
 end
 
+function M.open_field1_picker()
+    -- виводить перелік усіх полей 1 в картках та дозволяє швидкий перехід між ними --
+    local records = state.data().records or {}
+
+    if #records == 0 then
+        utils.info("Карток немає")
+        return
+    end
+
+    local lines = {}
+    local record_by_row = {}
+
+    for idx, record in ipairs(records) do
+        local value = record["1"]
+        local text
+
+        if type(value) == "table" then
+            local parts = {}
+            for _, part in ipairs(value) do
+                parts[#parts + 1] = tostring(part)
+            end
+            text = table.concat(parts, " / ")
+        elseif value ~= nil then
+            text = tostring(value)
+        else
+            text = ""
+        end
+
+        text = text:gsub("%s+", " ")
+        if vim.trim(text) == "" then
+            text = "(порожнє)"
+        end
+
+        lines[#lines + 1] = string.format("%4d │ %s", idx, text)
+        record_by_row[idx] = idx
+    end
+
+    local max_width = 0
+    for _, line in ipairs(lines) do
+        max_width = math.max(max_width, vim.fn.strdisplaywidth(line))
+    end
+
+    local width = math.max(30, math.min(max_width + 2, vim.o.columns - 4))
+    local height = math.max(1, math.min(#lines, vim.o.lines - 6))
+    local row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1)
+    local col = math.max(0, math.floor((vim.o.columns - width) / 2))
+
+    local picker_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(picker_buf, 0, -1, false, lines)
+    vim.bo[picker_buf].buftype = "nofile"
+    vim.bo[picker_buf].bufhidden = "wipe"
+    vim.bo[picker_buf].swapfile = false
+    vim.bo[picker_buf].modifiable = false
+
+    local picker_win = vim.api.nvim_open_win(picker_buf, true, {
+        relative = "editor",
+        width = width,
+        height = height,
+        row = row,
+        col = col,
+        style = "minimal",
+        border = "rounded",
+        title = " Виберіть картку ",
+        title_pos = "center",
+    })
+
+    vim.wo[picker_win].cursorline = true
+    vim.wo[picker_win].wrap = false
+
+    local function close_picker()
+        if picker_win and vim.api.nvim_win_is_valid(picker_win) then
+            vim.api.nvim_win_close(picker_win, true)
+        end
+    end
+
+    local function select_record()
+        if not vim.api.nvim_win_is_valid(picker_win) then
+            return
+        end
+
+        local row_idx = vim.api.nvim_win_get_cursor(picker_win)[1]
+        local record_idx = record_by_row[row_idx]
+        close_picker()
+
+        if record_idx and state.goto_record(record_idx) then
+            if M.body_win and vim.api.nvim_win_is_valid(M.body_win) then
+                vim.api.nvim_set_current_win(M.body_win)
+            end
+            M.redraw()
+        end
+    end
+
+    local opts = { buffer = picker_buf, silent = true, nowait = true }
+
+    vim.keymap.set("n", "<CR>", select_record, opts)
+    vim.keymap.set("n", "q", close_picker, opts)
+    vim.keymap.set("n", "<Esc>", close_picker, opts)
+    vim.keymap.set("n", "j", "j", { buffer = picker_buf, silent = true })
+    vim.keymap.set("n", "k", "k", { buffer = picker_buf, silent = true })
+    vim.keymap.set("n", "<Down>", "j", { buffer = picker_buf, silent = true })
+    vim.keymap.set("n", "<Up>", "k", { buffer = picker_buf, silent = true })
+end
+
 local function bind_keys()
     local keymaps = {
         ["R"] = { actions.action_R, true },
@@ -468,6 +571,7 @@ local function bind_keys()
         ["[["]  = { function() state.first() end, true },
         ["]]"]  = { function() state.last() end, true },
         ["<H>"] = { function() state.jump(5) end, true },
+        ["V"] = { function() M.open_field1_picker() end, false },
         ["<L>"] = { function() state.jump(-5) end, true },
         ["g"]   = { function()
             local total_records = state.count()

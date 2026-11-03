@@ -151,6 +151,11 @@ function M.cleanup(ui_state)
         )
     end
 
+    if ui_state and ui_state.body_buf then
+        require("awards53.abbreviations")
+            .unregister_buffer_abbreviations(ui_state.body_buf)
+    end
+    
     clear_inline_keymaps(ui_state and ui_state.body_buf or nil)
 
     M.edit_state = {
@@ -226,6 +231,9 @@ function M.start(ui_state, redraw_cb)
     }
 
     set_inline_keymaps(ui_state, redraw_cb)
+    
+    require("awards53.abbreviations")
+        .register_buffer_abbreviations(buf)
 
     vim.api.nvim_set_current_win(win)
     vim.api.nvim_win_set_cursor(win, { range.start_row + 1, 0 })
