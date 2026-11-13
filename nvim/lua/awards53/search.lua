@@ -854,6 +854,7 @@ end
 -- ==================== 4. ВСТАВКА/ВІДОБРАЖЕННЯ ПІБ З КЕШУ ====================
 
 local fio_ns = vim.api.nvim_create_namespace("awards53_fio_hint")
+local fio_err_ns = vim.api.nvim_create_namespace("awards53_fio_error")
 
 function M.show_fio_near_rnokpp()
     local filepath = get_current_filepath()
@@ -925,7 +926,6 @@ function M.show_fio_near_rnokpp()
         end
 
         local fio = cache_data[rnokpp]
-
         if not fio then
             return
         end
@@ -951,13 +951,12 @@ function M.show_fio_near_rnokpp()
             end
         end
 
-        -- Якщо сам РНОКПП у відображеній картці не знайдений,
-        -- використовуємо поточний рядок.
         if not target_row then
             target_row =
                 vim.api.nvim_win_get_cursor(0)[1] - 1
         end
 
+        -- 1. Малюємо підказку ПІБ біля РНОКПП
         vim.api.nvim_buf_clear_namespace(
             cur_buf,
             fio_ns,
@@ -978,6 +977,33 @@ function M.show_fio_near_rnokpp()
             }
         )
 
+        -- 2. Перевіряємо 1-ше поле картки та позначаємо помилку ТІЛЬКИ на ньому
+        vim.api.nvim_buf_clear_namespace(cur_buf, fio_err_ns, 0, -1)
+
+        local f1_val = card["1"] or card[1]
+        local f1_text = type(f1_val) == "table" and table.concat(f1_val, " ") or tostring(f1_val or "")
+        f1_text = vim.trim(f1_text:gsub("%s+", " "))
+        local norm_cache = vim.trim(fio:gsub("%s+", " "))
+
+        if f1_text ~= "" and f1_text:lower() ~= norm_cache:lower() then
+            local f1_range = ui.current_ranges and (ui.current_ranges["1"] or ui.current_ranges[1])
+            
+            if f1_range and f1_range.start_row then
+                local end_r = f1_range.end_row or f1_range.start_row
+                for r = f1_range.start_row, end_r do
+                    local line_str = vim.api.nvim_buf_get_lines(cur_buf, r, r + 1, false)[1] or ""
+                    vim.api.nvim_buf_set_extmark(cur_buf, fio_err_ns, r, 0, {
+                        end_row = r,
+                        end_col = #line_str,
+                        hl_group = "DiagnosticError",
+                        priority = 300,
+                        virt_text = (r == f1_range.start_row) and { { " ⚠️ Не збігається з кешем", "ErrorMsg" } } or nil,
+                        virt_text_pos = "eol",
+                    })
+                end
+            end
+        end
+
         return
     end
 
@@ -994,7 +1020,6 @@ function M.show_fio_near_rnokpp()
     local rnokpp = nil
     local target_row = nil
 
-    -- Спочатку шукаємо РНОКПП на поточному рядку.
     local current_line =
         vim.api.nvim_get_current_line()
 
@@ -1006,8 +1031,6 @@ function M.show_fio_near_rnokpp()
         target_row = cursor_row
     end
 
-    -- Якщо на поточному рядку його немає,
-    -- шукаємо найближчий РНОКПП у всьому буфері.
     if not rnokpp then
         for i = 0, line_count - 1 do
             local line_text =

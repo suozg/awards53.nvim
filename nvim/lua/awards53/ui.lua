@@ -169,13 +169,17 @@ local function render_body_with_ranges()
             start_row = r_data.start_row + header_offset,
             end_row = r_data.end_row + header_offset,
             indent = r_data.indent,
-        }
+}
     end
 
     return full_lines, adjusted_ranges
 end
 
 local fio_ns = vim.api.nvim_create_namespace("awards53_fio_hint")
+local fio_error_ns = vim.api.nvim_create_namespace("awards53_fio_error")
+
+local fio_ns = vim.api.nvim_create_namespace("awards53_fio_hint")
+local fio_err_ns = vim.api.nvim_create_namespace("awards53_fio_error")
 
 function M.redraw()
     if inline.edit_state.active then
@@ -183,8 +187,8 @@ function M.redraw()
     end
 
     if M.body_buf and vim.api.nvim_buf_is_valid(M.body_buf) then
-        -- Очищаємо підказки ПІБ при перемалюванні картки
         vim.api.nvim_buf_clear_namespace(M.body_buf, fio_ns, 0, -1)
+        vim.api.nvim_buf_clear_namespace(M.body_buf, fio_err_ns, 0, -1)
     end
     
     update_header_highlight()
@@ -211,8 +215,7 @@ function M.redraw()
     vim.bo[M.body_buf].modifiable = true
     vim.api.nvim_buf_set_lines(M.body_buf, 0, -1, false, full_lines)
     vim.bo[M.body_buf].modifiable = false
-
-    -- Автоматично підсвічуємо праву частину шапки (header.lua):
+    
     if full_lines[1] then
         local header_ns = vim.api.nvim_create_namespace("awards53_header_hl")
         vim.api.nvim_buf_clear_namespace(M.body_buf, header_ns, 0, 1)
@@ -225,9 +228,6 @@ function M.redraw()
 
     utils.highlight_rnokpp_in_buf(M.body_buf)
     apply_field_highlighting(M.body_buf)
-    
-    utils.highlight_rnokpp_in_buf(M.body_buf)
-    apply_field_highlighting(M.body_buf)
 
     if is_editing_card_buffer and saved_cursor then
         local line_count = vim.api.nvim_buf_line_count(M.body_buf)
@@ -238,12 +238,11 @@ function M.redraw()
     end
 
     update_ui_buffer_title()
-
-    -- Малюємо підказку ПІБ (спрацює ТІЛЬКИ якщо lock_processed == true)
+    
+    -- Малюємо підказку ПІБ та перевіряємо збіг з 1-м полем
     pcall(function()
         search_module.show_fio_near_rnokpp()
     end)
-
 end
 
 function M.open_undotree_window()
@@ -902,6 +901,7 @@ function M.open()
 
     M.redraw()
 end
+
 
 function M.focus()
     if M.body_win and vim.api.nvim_win_is_valid(M.body_win) then
