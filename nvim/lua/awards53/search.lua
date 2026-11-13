@@ -856,14 +856,30 @@ end
 local fio_ns = vim.api.nvim_create_namespace("awards53_fio_hint")
 local fio_err_ns = vim.api.nvim_create_namespace("awards53_fio_error")
 
+
 function M.show_fio_near_rnokpp()
+    local state = require("awards53.state")
+    local ui = require("awards53.ui")
+
+    local cur_buf = vim.api.nvim_get_current_buf()
+
+    -- Определяем режим работы
+    local mode
+
+    if ui.body_buf and cur_buf == ui.body_buf then
+        mode = "awards"
+    else
+        mode = require("awards53.documents.context").mode()
+    end
+
+    if mode ~= "awards" and mode ~= "org" then
+        return
+    end
+
     local filepath = get_current_filepath()
     if not filepath then
         return
     end
-
-    local state = require("awards53.state")
-    local ui = require("awards53.ui")
 
     local cache_data = load_rnokpp_cache_for_file(filepath)
 
@@ -871,13 +887,14 @@ function M.show_fio_near_rnokpp()
         return
     end
 
-    local cur_buf = vim.api.nvim_get_current_buf()
-
     -- ============================================================
     -- Сценарій А: UI карток Awards53
     -- ============================================================
 
-    if ui.body_buf and cur_buf == ui.body_buf then
+    if mode == "awards" and ui.body_buf and cur_buf == ui.body_buf then
+        -- Видаляємо попередню прив'язку E
+        pcall(vim.keymap.del, "n", "E", { buffer = cur_buf })
+        
         local current_card_idx =
             ui.current_card or state.index() or 1
 
@@ -894,31 +911,23 @@ function M.show_fio_near_rnokpp()
 
         local rnokpp = nil
 
-        -- Шукаємо РНОКПП у поточній картці.
         for _, lines in pairs(card) do
             if type(lines) == "table" then
                 for _, line in ipairs(lines) do
-                    local match =
-                        line:match("(%d%d%d%d%d%d%d%d%d%d)")
-
+                    local match = line:match("(%d%d%d%d%d%d%d%d%d%d)")
                     if match and cache_data[match] then
                         rnokpp = match
                         break
                     end
                 end
             elseif type(lines) == "string" then
-                local match =
-                    lines:match("(%d%d%d%d%d%d%d%d%d%d)")
-
+                local match = lines:match("(%d%d%d%d%d%d%d%d%d%d)")
                 if match and cache_data[match] then
                     rnokpp = match
                     break
                 end
             end
-
-            if rnokpp then
-                break
-            end
+            if rnokpp then break end
         end
 
         if not rnokpp then
@@ -930,21 +939,11 @@ function M.show_fio_near_rnokpp()
             return
         end
 
-        -- Шукаємо рядок картки, біля якого показати ПІБ.
-        local line_count =
-            vim.api.nvim_buf_line_count(cur_buf)
-
+        local line_count = vim.api.nvim_buf_line_count(cur_buf)
         local target_row = nil
 
         for i = 0, line_count - 1 do
-            local line_text =
-                vim.api.nvim_buf_get_lines(
-                    cur_buf,
-                    i,
-                    i + 1,
-                    false
-                )[1] or ""
-
+            local line_text = vim.api.nvim_buf_get_lines(cur_buf, i, i + 1, false)[1] or ""
             if line_text:match(rnokpp) then
                 target_row = i
                 break
@@ -952,18 +951,11 @@ function M.show_fio_near_rnokpp()
         end
 
         if not target_row then
-            target_row =
-                vim.api.nvim_win_get_cursor(0)[1] - 1
+            target_row = vim.api.nvim_win_get_cursor(0)[1] - 1
         end
 
         -- 1. Малюємо підказку ПІБ біля РНОКПП
-        vim.api.nvim_buf_clear_namespace(
-            cur_buf,
-            fio_ns,
-            0,
-            -1
-        )
-
+        vim.api.nvim_buf_clear_namespace(cur_buf, fio_ns, 0, -1)
         vim.api.nvim_buf_set_extmark(
             cur_buf,
             fio_ns,
@@ -977,7 +969,7 @@ function M.show_fio_near_rnokpp()
             }
         )
 
-        -- 2. Перевіряємо 1-ше поле картки та позначаємо помилку ТІЛЬКИ на ньому
+        -- 2. Перевіряємо 1-ше поле картки та позначаємо помилку
         vim.api.nvim_buf_clear_namespace(cur_buf, fio_err_ns, 0, -1)
 
         local f1_val = card["1"] or card[1]
@@ -997,11 +989,20 @@ function M.show_fio_near_rnokpp()
                         end_col = #line_str,
                         hl_group = "DiagnosticError",
                         priority = 300,
-                        virt_text = (r == f1_range.start_row) and { { " ⚠️ Не збігається з кешем", "ErrorMsg" } } or nil,
+                        virt_text = (r == f1_range.start_row) and { { " ⚠️ Не збігається з кешем ([E] - виправити)", "ErrorMsg" } } or nil,
                         virt_text_pos = "eol",
                     })
                 end
             end
+
+            -- Миттєво прив'язуємо клавішу E до цього конкретного знаходження `fio`
+            vim.keymap.set("n", "E", function()
+                M.fix_field1_from_cache(fio, current_card_idx)
+            end, {
+                buffer = cur_buf,
+                silent = true,
+                desc = "Виправити ПІБ з кешу",
+            })
         end
 
         return
@@ -1010,6 +1011,9 @@ function M.show_fio_near_rnokpp()
     -- ============================================================
     -- Сценарій Б: звичайний .org буфер
     -- ============================================================
+    if mode ~= "org" then
+        return
+    end
 
     local line_count =
         vim.api.nvim_buf_line_count(cur_buf)
@@ -1081,6 +1085,20 @@ function M.show_fio_near_rnokpp()
             virt_text_pos = "eol",
         }
     )
+end
+
+-- Автоматичне виправлення 1-го поля готовим значенням з кешу
+function M.fix_field1_from_cache(correct_fio, card_idx)
+    local state = require("awards53.state")
+    local ui = require("awards53.ui")
+
+    if state.fix_field1(correct_fio, card_idx) then
+        ui.redraw()
+        utils.info("ПІБ успішно виправлено")
+        return true
+    end
+
+    return false
 end
 
 return M

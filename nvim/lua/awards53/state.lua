@@ -884,4 +884,34 @@ function M.sync_to_disk()
     return true
 end
 
+
+-- Автоматичне виправлення першого поля картки
+function M.fix_field1(correct_fio, card_idx)
+    if not correct_fio or vim.trim(correct_fio) == "" then
+        return false
+    end
+
+    card_idx = card_idx or M.current
+
+    local record = M.records[card_idx]
+    if not record then
+        utils.warn("Картку не знайдено")
+        return false
+    end
+
+    M.snapshot()
+
+    record["1"] = { correct_fio }
+
+    M.renumber()
+
+    if not M.sync_to_disk() then
+        utils.error("Не вдалося синхронізувати зміни з org-файлом")
+        return false
+    end
+
+    return true
+end
+
+
 return M
